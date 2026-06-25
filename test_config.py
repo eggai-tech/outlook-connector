@@ -116,6 +116,19 @@ def test_secret_in_yaml_is_rejected(tmp_path, monkeypatch):
         _load(tmp_path, with_secret, monkeypatch)
 
 
+def test_initial_cursor_defaults_to_none(tmp_path, monkeypatch):
+    settings = _load(tmp_path, _VALID_YAML, monkeypatch)
+    assert settings.initial_cursor is None
+
+
+def test_initial_cursor_parses_iso_datetime(tmp_path, monkeypatch):
+    from datetime import datetime, timezone
+
+    yaml = _VALID_YAML + "initial_cursor: 2026-06-26T08:00:00Z\n"
+    settings = _load(tmp_path, yaml, monkeypatch)
+    assert settings.initial_cursor == datetime(2026, 6, 26, 8, 0, tzinfo=timezone.utc)
+
+
 def test_unknown_transport_fails_fast(tmp_path, monkeypatch):
     bad = _VALID_YAML.replace("transport: kafka", "transport: carrier-pigeon")
     with pytest.raises(ValidationError):

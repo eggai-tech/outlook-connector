@@ -17,6 +17,7 @@ import asyncio
 import logging
 import signal
 from collections.abc import Awaitable, Callable
+from datetime import datetime, timezone
 
 from eggai import Channel
 from eggai.transport.base import Transport
@@ -95,11 +96,62 @@ def _install_signal_handlers(loop: asyncio.AbstractEventLoop, handler) -> None:
             signal.signal(sig, lambda *_: handler())
 
 
+def build_poller(settings, transport: Transport):
+    """Wire the real :class:`~poller.Poller` from validated ``settings``.
+
+    Builds one app-only :class:`OutlookClient` per mailbox (the helper is bound
+    to a single mailbox), seeds each cursor to ``initial_cursor`` or process-start
+    "now", and publishes to the bus channel on ``transport``. Every (synchronous)
+    helper call runs via :func:`asyncio.to_thread` so a blocking request or a
+    ``Retry-After`` sleep never stalls the event loop.
+    """
+    from outlook_helper import AppOnlyConfig, ClientSecretCredential, OutlookClient
+
+    from poller import Poller
+
+    credential = ClientSecretCredential(
+        AppOnlyConfig(
+            client_id=settings.azure.client_id,
+            tenant_id=settings.azure.tenant_id,
+            client_secret=settings.client_secret,
+        )
+    )
+    clients = {
+        mailbox: OutlookClient(credential, mailbox=mailbox)
+        for mailbox in settings.mailboxes
+    }
+
+    async def fetch(mailbox: str, cursor: datetime):
+        client = clients[mailbox]
+        return await asyncio.to_thread(
+            lambda: list(
+                client.search_email(
+                    since_exclusive=cursor,  # strict >, sub-second precise
+                    include_headers=True,  # internet_message_id + In-Reply-To/References
+                    html_body=True,  # body guaranteed HTML
+                )
+            )
+        )
+
+    channel = Channel(settings.bus.channel, transport=transport)
+    seed = settings.initial_cursor or datetime.now(timezone.utc)
+    cursors = {mailbox: seed for mailbox in settings.mailboxes}
+
+    return Poller(
+        mailboxes=list(settings.mailboxes),
+        fetch=fetch,
+        publish=channel.publish,
+        cursors=cursors,
+    )
+
+
 async def run_service(settings, transport: Transport | None = None, cycle: Cycle | None = None):
     """Build, run, and drain the service from validated ``settings``."""
     from bus import build_transport
 
     transport = transport or build_transport(settings.bus)
+    if cycle is None:
+        cycle = build_poller(settings, transport).run_cycle
     service = Service(
         mailboxes=settings.mailboxes,
         channel=settings.bus.channel,

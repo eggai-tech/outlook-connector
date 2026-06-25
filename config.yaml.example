@@ -11,6 +11,11 @@ mailboxes:
 # Fixed-delay between poll cycles, in seconds.
 poll_interval_seconds: 60
 
+# Optional: seed every mailbox cursor from this instant (ISO 8601) instead of
+# process-start "now". Only mail received strictly after this point is bridged.
+# Leave commented to start from "now".
+# initial_cursor: 2026-06-26T08:00:00Z
+
 # Log level (stdlib logging name): DEBUG | INFO | WARNING | ERROR.
 log_level: INFO
 

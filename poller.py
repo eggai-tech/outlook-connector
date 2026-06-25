@@ -1,0 +1,130 @@
+"""The inbound poll loop's per-cycle, per-mailbox processing.
+
+Implements `the spec <docs/implementation.md#per-cycle-per-mailbox-processing>`.
+:meth:`Poller.run_cycle` is the unit of work the :class:`~service.Service`
+fixed-delay loop calls each cycle; it polls every configured mailbox
+**sequentially**, each inside its own ``try/except`` so one mailbox's failure
+never crashes the loop or blocks the others.
+
+Cursor / failure semantics (the "never duplicate, occasionally drop" principle):
+
+- Each mailbox has its own in-memory ``receivedDateTime`` cursor. A poll fetches
+  ``receivedDateTime > cursor`` (strict ``>``, served natively by the helper's
+  ``since_exclusive``).
+- The batch is processed **ascending**; the cursor advances to each message's
+  ``receivedDateTime`` only **after** a successful publish.
+- On the **first publish failure the batch stops**, leaving the cursor at the
+  last success so the next cycle resumes there without duplicating.
+- On any **Graph/transport error** the cursor is left untouched and the next
+  mailbox is polled; the fixed-delay loop retries next cycle.
+
+The ``fetch`` and ``publish`` collaborators are injected so the cursor logic is
+testable without a live Graph API or bus; :func:`service.build_poller` wires the
+real ones.
+"""
+
+import logging
+from collections.abc import Awaitable, Callable
+from dataclasses import dataclass
+from datetime import datetime, timezone
+
+import httpx
+from outlook_helper import GraphError, OutlookMessage
+
+from mapping import build_event
+
+logger = logging.getLogger(__name__)
+
+# Fetch new messages for a mailbox given its current cursor (async-wrapped Graph
+# call). Publish a built bus event. Both injected for testability.
+Fetch = Callable[[str, datetime], Awaitable[list[OutlookMessage]]]
+Publish = Callable[[object], Awaitable[None]]
+
+# Errors that mean "the Graph call failed" — leave the cursor, try next cycle.
+# The helper already retries 429/503 honoring Retry-After; everything else
+# (other 5xx, network failures) surfaces as one of these.
+_GRAPH_ERRORS = (GraphError, httpx.HTTPError)
+
+
+def _utcnow() -> datetime:
+    return datetime.now(timezone.utc)
+
+
+@dataclass
+class MailboxSummary:
+    """Per-cycle, per-mailbox observability record (also emitted to the log)."""
+
+    mailbox: str
+    fetched: int = 0
+    published: int = 0
+    error: str | None = None
+
+
+class Poller:
+    """Polls mailboxes sequentially and bridges new mail to the bus."""
+
+    def __init__(
+        self,
+        *,
+        mailboxes: list[str],
+        fetch: Fetch,
+        publish: Publish,
+        cursors: dict[str, datetime],
+        now: Callable[[], datetime] = _utcnow,
+    ):
+        self.mailboxes = mailboxes
+        self._fetch = fetch
+        self._publish = publish
+        self.cursors = cursors
+        self._now = now
+
+    async def run_cycle(self) -> list[MailboxSummary]:
+        """Poll every mailbox once, in order, isolating per-mailbox failures."""
+        summaries = []
+        for mailbox in self.mailboxes:
+            summaries.append(await self._poll_mailbox(mailbox))
+        return summaries
+
+    async def _poll_mailbox(self, mailbox: str) -> MailboxSummary:
+        summary = MailboxSummary(mailbox)
+        cursor = self.cursors[mailbox]
+        fetched_at = self._now()
+
+        try:
+            messages = await self._fetch(mailbox, cursor)
+        except _GRAPH_ERRORS as exc:
+            summary.error = f"{type(exc).__name__}: {exc}"
+            logger.warning("poll %s: fetch failed: %s", mailbox, summary.error)
+            return summary
+
+        # Drop any without a timestamp (can't be ordered or cursored), then sort
+        # ascending so the cursor advances monotonically and we never duplicate.
+        messages = [m for m in messages if m.received_at is not None]
+        messages.sort(key=lambda m: m.received_at)
+        summary.fetched = len(messages)
+
+        for message in messages:
+            try:
+                event = build_event(
+                    message, source_mailbox=mailbox, fetched_at=fetched_at
+                )
+                await self._publish(event)
+            except Exception as exc:  # publish/map failure -> stop the batch
+                summary.error = f"{type(exc).__name__}: {exc}"
+                logger.warning(
+                    "poll %s: stopped batch at publish failure: %s",
+                    mailbox,
+                    summary.error,
+                )
+                break
+            self.cursors[mailbox] = message.received_at
+            summary.published += 1
+
+        logger.info(
+            "poll %s: fetched=%d published=%d error=%s",
+            mailbox,
+            summary.fetched,
+            summary.published,
+            summary.error,
+        )
+        return summary

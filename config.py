@@ -14,6 +14,7 @@ structural field, an empty mailbox list, or an unknown transport all raise.
 """
 
 import os
+from datetime import datetime
 from typing import Literal
 
 from pydantic import BaseModel, Field
@@ -71,6 +72,10 @@ class Settings(BaseSettings):
 
     mailboxes: list[str] = Field(min_length=1)
     poll_interval_seconds: float = Field(default=60.0, gt=0)
+    # Optional manual cursor seed (ISO 8601). When unset, each mailbox cursor
+    # starts at process-start "now" so only mail received after startup is
+    # bridged. Set this to backfill from a known point in time instead.
+    initial_cursor: datetime | None = None
     log_level: str = "INFO"
     bus: BusConfig = Field(default_factory=BusConfig)
     azure: AzureConfig

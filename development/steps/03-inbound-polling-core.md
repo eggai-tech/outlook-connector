@@ -25,6 +25,7 @@ Per [the spec](../docs/implementation.md#per-mailbox-cursor):
 - Each mailbox has its own **last-seen `receivedDateTime` cursor**.
 - Cursor is **volatile** (in-memory), initialised to **"now"** on startup — only
   mail received strictly after process start is bridged.
+- Can pass receivedDateTime to service at startup (ISO format), to initialize to manual datetime.
 - Poll queries `receivedDateTime > cursor` (**strict `>`**).
 - Cursor advances to the **maximum `receivedDateTime` observed** in the batch
   (server-relative, avoids clock skew).
