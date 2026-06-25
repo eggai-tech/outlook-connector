@@ -49,3 +49,20 @@ async def create_email():
         source="/outlook-connector", type=EMAIL_RECEIVED, data=payload
     )
     await emails_channel.publish(message)
+
+
+# Throwaway publish script (Piece 1): emits one sample event so downstream
+# consumers can build against the contract. The real service is `main.py`.
+if __name__ == "__main__":
+    import asyncio
+
+    from eggai import eggai_cleanup
+    from eggai.transport import eggai_set_default_transport, KafkaTransport
+
+    async def _publish_sample():
+        await email_agent.start()
+        await create_email()
+        await eggai_cleanup()
+
+    eggai_set_default_transport(lambda: KafkaTransport())
+    asyncio.run(_publish_sample())

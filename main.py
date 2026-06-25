@@ -1,24 +1,48 @@
+"""Outlook connector entrypoint.
+
+Loads and validates configuration (fail fast → exit non-zero on any error),
+then runs the long-running service until ``SIGTERM``/``SIGINT`` drains it
+cleanly (exit 0). See `the spec <docs/implementation.md#startup--shutdown>`.
+"""
+
 import asyncio
+import logging
+import sys
 
-from eggai import eggai_cleanup
+from config import load_settings
+from service import run_service
 
-from email_agent import create_email, email_agent
-from eggai.transport import eggai_set_default_transport, KafkaTransport
+logger = logging.getLogger("outlook_connector")
 
 
-async def main():
+def _configure_logging(level: str = "INFO") -> None:
+    logging.basicConfig(
+        level=level,
+        stream=sys.stdout,
+        format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+    )
 
-    await email_agent.start()
-    await create_email()
+
+def main() -> int:
+    _configure_logging()
 
     try:
-        await asyncio.Event().wait()
-    except (KeyboardInterrupt, asyncio.CancelledError):
-        pass
+        settings = load_settings()
+    except Exception as exc:
+        # Configuration is user error — a clear message, no traceback.
+        logger.error("Configuration error: %s", exc)
+        return 1
 
-    await eggai_cleanup()
+    logging.getLogger().setLevel(settings.log_level)
+
+    try:
+        asyncio.run(run_service(settings))
+    except Exception:
+        logger.exception("Fatal error; shutting down")
+        return 1
+
+    return 0
 
 
 if __name__ == "__main__":
-    eggai_set_default_transport(lambda: KafkaTransport())
-    asyncio.run(main())
+    sys.exit(main())

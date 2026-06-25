@@ -1,0 +1,26 @@
+# Outlook connector — structural configuration.
+#
+# Copy to config.yaml (or point CONFIG_FILE at it) and edit. The client secret
+# is NOT set here — supply it via the `client_secret` environment variable.
+
+# Mailboxes to poll (at least one).
+mailboxes:
+  - invoices@egg-ai.com
+  - support@egg-ai.com
+
+# Fixed-delay between poll cycles, in seconds.
+poll_interval_seconds: 60
+
+# Log level (stdlib logging name): DEBUG | INFO | WARNING | ERROR.
+log_level: INFO
+
+# EggAI bus connection.
+bus:
+  transport: kafka          # kafka | redis | inmemory
+  broker_url: localhost:19092  # bootstrap servers (kafka) / URL (redis); omit for transport default
+  channel: emails
+
+# Azure app registration (the client_secret comes from the environment).
+azure:
+  tenant_id: 00000000-0000-0000-0000-000000000000
+  client_id: 00000000-0000-0000-0000-000000000000
