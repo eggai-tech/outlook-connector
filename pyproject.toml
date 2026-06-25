@@ -1,0 +1,18 @@
+[project]
+name = "outlook-connector"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "eggai>=0.3.2",
+    "outlook-helper",
+]
+
+[tool.uv.sources]
+outlook-helper = { git = "ssh://git@github.com/eggai-tech/outlook-helper.git", tag = "v0.1.0" }
+
+[dependency-groups]
+dev = [
+    "pytest>=9.1.1",
+]
