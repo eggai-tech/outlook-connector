@@ -1,7 +1,7 @@
 """Tests for the layered service configuration.
 
-Structural config comes from a YAML file; the ``client_secret`` is supplied via
-an environment variable only and must never appear in the YAML.
+Structural config comes from a YAML file; the ``client_secret`` may come from
+either the YAML file or the ``client_secret`` environment variable (env wins).
 
 Runnable standalone (`python -m tests.test_config`) or under pytest.
 """
@@ -12,7 +12,7 @@ from pathlib import Path
 import pytest
 from pydantic import ValidationError
 
-from config import SecretInConfigError, Settings, load_settings
+from config import Settings, load_settings
 
 _VALID_YAML = """\
 mailboxes:
@@ -110,10 +110,16 @@ azure:
         _load(tmp_path, no_mailboxes, monkeypatch)
 
 
-def test_secret_in_yaml_is_rejected(tmp_path, monkeypatch):
-    with_secret = _VALID_YAML + "client_secret: leaked-in-file\n"
-    with pytest.raises(SecretInConfigError):
-        _load(tmp_path, with_secret, monkeypatch)
+def test_client_secret_comes_from_yaml(tmp_path, monkeypatch):
+    with_secret = _VALID_YAML + "client_secret: from-file\n"
+    settings = _load(tmp_path, with_secret, monkeypatch, secret=None)
+    assert settings.client_secret == "from-file"
+
+
+def test_env_secret_overrides_yaml(tmp_path, monkeypatch):
+    with_secret = _VALID_YAML + "client_secret: from-file\n"
+    settings = _load(tmp_path, with_secret, monkeypatch, secret="from-env")
+    assert settings.client_secret == "from-env"
 
 
 def test_initial_cursor_defaults_to_none(tmp_path, monkeypatch):
@@ -181,7 +187,8 @@ if __name__ == "__main__":
     _run(test_missing_client_secret_fails_fast)
     _run(test_missing_required_structural_field_fails_fast)
     _run(test_empty_mailbox_list_fails_fast)
-    _run(test_secret_in_yaml_is_rejected)
+    _run(test_client_secret_comes_from_yaml)
+    _run(test_env_secret_overrides_yaml)
     _run(test_unknown_transport_fails_fast)
     _run(test_missing_config_file_fails_fast)
     print("All config tests passed.")

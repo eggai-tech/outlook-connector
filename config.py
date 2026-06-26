@@ -5,9 +5,9 @@ Per `the spec <docs/implementation.md#configuration>`:
 - **Structural config** lives in a YAML file (path from ``CONFIG_FILE``,
   default ``config.yaml``): mailbox list, poll interval, bus connection, Azure
   ``tenant_id``/``client_id``, log level.
-- **Secrets** come from environment variables only — ``client_secret`` is never
-  read from the YAML file. The :class:`_StructuralYamlSource` actively rejects a
-  ``client_secret`` written into the file so the secret cannot leak there.
+- **The ``client_secret``** may come from either the YAML file or the
+  ``client_secret`` environment variable; the environment takes precedence so a
+  deployment can override a file-supplied secret.
 
 Validation is strict so startup can *fail fast*: a missing secret, a missing
 structural field, an empty mailbox list, or an unknown transport all raise.
@@ -29,10 +29,6 @@ CONFIG_FILE_ENV = "CONFIG_FILE"
 DEFAULT_CONFIG_FILE = "config.yaml"
 
 
-class SecretInConfigError(Exception):
-    """Raised when a secret (``client_secret``) is found in the YAML config file."""
-
-
 class BusConfig(BaseModel):
     """EggAI bus connection settings."""
 
@@ -47,19 +43,6 @@ class AzureConfig(BaseModel):
 
     tenant_id: str
     client_id: str
-
-
-class _StructuralYamlSource(YamlConfigSettingsSource):
-    """A YAML source that refuses to carry the ``client_secret``."""
-
-    def __call__(self) -> dict:
-        data = super().__call__()
-        if "client_secret" in data:
-            raise SecretInConfigError(
-                "client_secret must not appear in the config file; "
-                "supply it via the client_secret environment variable."
-            )
-        return data
 
 
 class Settings(BaseSettings):
@@ -80,7 +63,8 @@ class Settings(BaseSettings):
     bus: BusConfig = Field(default_factory=BusConfig)
     azure: AzureConfig
 
-    # Secret — environment variable only, never the YAML file.
+    # Secret — from the YAML file or the client_secret environment variable
+    # (environment wins).
     client_secret: str
 
     @classmethod
@@ -93,9 +77,9 @@ class Settings(BaseSettings):
         file_secret_settings: PydanticBaseSettingsSource,
     ) -> tuple[PydanticBaseSettingsSource, ...]:
         yaml_file = os.getenv(CONFIG_FILE_ENV, DEFAULT_CONFIG_FILE)
-        yaml_source = _StructuralYamlSource(settings_cls, yaml_file=yaml_file)
-        # Precedence (first wins): explicit init args, then environment (the
-        # secret), then the structural YAML file.
+        yaml_source = YamlConfigSettingsSource(settings_cls, yaml_file=yaml_file)
+        # Precedence (first wins): explicit init args, then environment (which
+        # may carry the secret), then the YAML file.
         return (init_settings, env_settings, yaml_source)
 
 
