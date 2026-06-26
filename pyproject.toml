@@ -17,3 +17,9 @@ outlook-helper = { git = "ssh://git@github.com/eggai-tech/outlook-helper.git", t
 dev = [
     "pytest>=9.1.1",
 ]
+
+[tool.pytest.ini_options]
+# Tests live in tests/ but import the connector modules (mapping, poller, …)
+# from the project root, so keep the root on the import path.
+testpaths = ["tests"]
+pythonpath = ["."]

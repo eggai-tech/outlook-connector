@@ -133,6 +133,12 @@ def build_poller(settings, transport: Transport):
             )
         )
 
+    async def fetch_attachments(mailbox: str, graph_id: str):
+        # The extra Graph call, made only for attachment-bearing mail; the helper
+        # is synchronous so it runs off the event loop like every other call.
+        client = clients[mailbox]
+        return await asyncio.to_thread(client.list_attachments, graph_id)
+
     channel = Channel(settings.bus.channel, transport=transport)
     seed = settings.initial_cursor or datetime.now(timezone.utc)
     cursors = {mailbox: seed for mailbox in settings.mailboxes}
@@ -142,6 +148,7 @@ def build_poller(settings, transport: Transport):
         fetch=fetch,
         publish=channel.publish,
         cursors=cursors,
+        fetch_attachments=fetch_attachments,
     )
 
 

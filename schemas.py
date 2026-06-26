@@ -61,7 +61,7 @@ class Email(BaseModel):
     body_content_type: Literal["html", "text"]
     preview: str | None = None  # Graph's bodyPreview
 
-    # Attachments (metadata only; empty until Piece 4)
+    # Attachments (metadata only; empty for mail without attachments)
     has_attachments: bool = False
     attachments: list[Attachment] = Field(default_factory=list)
 

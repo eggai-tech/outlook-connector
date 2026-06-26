@@ -3,7 +3,7 @@
 `Done when <development/steps/02-service-skeleton.md>`: missing/invalid config
 exits non-zero with a clear message.
 
-Runnable standalone (`python test_main.py`) or under pytest.
+Runnable standalone (`python -m tests.test_main`) or under pytest.
 """
 
 from pathlib import Path

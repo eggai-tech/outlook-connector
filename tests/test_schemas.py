@@ -1,6 +1,6 @@
 """Tests for the owned email.received bus contract.
 
-Runnable standalone (`python test_schemas.py`) or under pytest.
+Runnable standalone (`python -m tests.test_schemas`) or under pytest.
 """
 
 from datetime import datetime, timezone

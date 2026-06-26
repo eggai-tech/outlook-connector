@@ -3,7 +3,7 @@
 The skeleton has no email logic yet — it connects to the bus eagerly (fail
 fast), idles in a cancellable loop, and drains cleanly on request.
 
-Runnable standalone (`python test_service.py`) or under pytest.
+Runnable standalone (`python -m tests.test_service`) or under pytest.
 """
 
 import asyncio

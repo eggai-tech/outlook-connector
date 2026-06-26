@@ -5,13 +5,13 @@ contract. It must be lossless for the fields the contract carries and defensive
 about the helper's many ``Optional`` fields, since the owned ``Email`` model
 makes several of them required.
 
-Runnable standalone (`python test_mapping.py`) or under pytest.
+Runnable standalone (`python -m tests.test_mapping`) or under pytest.
 """
 
 from datetime import datetime, timezone
 
 from outlook_helper import EmailAddress as HelperAddress
-from outlook_helper import OutlookBody, OutlookMessage
+from outlook_helper import OutlookAttachmentMeta, OutlookBody, OutlookMessage
 from outlook_helper.schemas import InternetMessageHeader
 
 from mapping import build_event, map_email
@@ -78,10 +78,53 @@ def test_extra_headers_excludes_modeled_threading_headers():
     assert email.extra_headers == {"X-Mailer": "Outlook"}
 
 
-def test_attachments_metadata_not_populated_yet():
+def test_attachments_empty_when_none_supplied():
+    # No metadata passed -> the list is empty even though the native flag is set.
+    # (The poller only fetches metadata for attachment-bearing mail.)
     email = map_email(_full_message())
     assert email.has_attachments is True  # native flag is free
-    assert email.attachments == []  # content/metadata fetch is Piece 4
+    assert email.attachments == []
+
+
+def test_maps_attachment_metadata():
+    metas = [
+        OutlookAttachmentMeta(
+            id="att-1", name="invoice.pdf", content_type="application/pdf", size=8421
+        ),
+        OutlookAttachmentMeta(
+            id="att-2", name="logo.png", content_type="image/png", size=512
+        ),
+    ]
+    email = map_email(_full_message(), attachments=metas)
+    assert [(a.filename, a.content_type, a.size) for a in email.attachments] == [
+        ("invoice.pdf", "application/pdf", 8421),
+        ("logo.png", "image/png", 512),
+    ]
+
+
+def test_attachment_metadata_defensive_defaults():
+    # The helper makes name/content_type/size Optional; the owned model requires
+    # them, so a sparse attachment maps to safe defaults rather than raising.
+    meta = OutlookAttachmentMeta(id="att-x", name=None, content_type=None, size=None)
+    email = map_email(_full_message(), attachments=[meta])
+    [att] = email.attachments
+    assert (att.filename, att.content_type, att.size) == ("", "", 0)
+
+
+def test_build_event_carries_attachments():
+    metas = [
+        OutlookAttachmentMeta(
+            id="att-1", name="invoice.pdf", content_type="application/pdf", size=8421
+        )
+    ]
+    event = build_event(
+        _full_message(),
+        source_mailbox="invoices@egg-ai.com",
+        fetched_at=_RECEIVED_AT,
+        attachments=metas,
+    )
+    [att] = event.data.email.attachments
+    assert (att.filename, att.content_type, att.size) == ("invoice.pdf", "application/pdf", 8421)
 
 
 def test_falls_back_to_graph_id_when_internet_message_id_missing():
@@ -120,7 +163,10 @@ if __name__ == "__main__":
     test_maps_body_losslessly()
     test_maps_threading_from_headers()
     test_extra_headers_excludes_modeled_threading_headers()
-    test_attachments_metadata_not_populated_yet()
+    test_attachments_empty_when_none_supplied()
+    test_maps_attachment_metadata()
+    test_attachment_metadata_defensive_defaults()
+    test_build_event_carries_attachments()
     test_falls_back_to_graph_id_when_internet_message_id_missing()
     test_defensive_defaults_for_sparse_message()
     test_build_event_wraps_payload()

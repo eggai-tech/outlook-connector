@@ -9,7 +9,7 @@ These exercise the cursor/failure semantics that implement the spec's
 - a Graph error leaves the cursor untouched and never blocks other mailboxes.
 
 The poller takes injected ``fetch``/``publish`` callables so these run without a
-live Graph API or bus. Runnable standalone (`python test_poller.py`) or pytest.
+live Graph API or bus. Runnable standalone (`python -m tests.test_poller`) or pytest.
 """
 
 import asyncio
@@ -17,7 +17,12 @@ from datetime import datetime, timedelta, timezone
 
 import httpx
 from outlook_helper import EmailAddress as HelperAddress
-from outlook_helper import GraphError, OutlookBody, OutlookMessage
+from outlook_helper import (
+    GraphError,
+    OutlookAttachmentMeta,
+    OutlookBody,
+    OutlookMessage,
+)
 
 from poller import Poller
 
@@ -25,7 +30,9 @@ _T0 = datetime(2026, 6, 26, 12, 0, 0, tzinfo=timezone.utc)
 _NOW = datetime(2026, 6, 26, 12, 5, 0, tzinfo=timezone.utc)
 
 
-def _msg(seconds: int, mid: str | None = None) -> OutlookMessage:
+def _msg(
+    seconds: int, mid: str | None = None, has_attachments: bool = False
+) -> OutlookMessage:
     return OutlookMessage(
         id=f"graph-{seconds}",
         internet_message_id=mid or f"<m{seconds}@example.com>",
@@ -33,6 +40,7 @@ def _msg(seconds: int, mid: str | None = None) -> OutlookMessage:
         from_=HelperAddress(address="alice@example.com"),
         received_at=_T0 + timedelta(seconds=seconds),
         body=OutlookBody(content_type="html", content="<p>hi</p>"),
+        has_attachments=has_attachments,
     )
 
 
@@ -50,13 +58,14 @@ class _Recorder:
         self.published.append(message)
 
 
-def _poller(*, fetch, publish, cursors):
+def _poller(*, fetch, publish, cursors, fetch_attachments=None):
     return Poller(
         mailboxes=list(cursors),
         fetch=fetch,
         publish=publish,
         cursors=cursors,
         now=lambda: _NOW,
+        fetch_attachments=fetch_attachments,
     )
 
 
@@ -124,6 +133,92 @@ def test_empty_batch_leaves_cursor_unchanged():
         assert cursors["a@egg-ai.com"] == _T0
         assert rec.published == []
         assert summaries[0].fetched == 0 and summaries[0].published == 0
+
+    asyncio.run(go())
+
+
+# --- attachment metadata enrichment (Piece 4) ------------------------------
+
+
+class _AttachmentFetcher:
+    """Records (mailbox, graph_id) calls; returns canned metadata per graph_id."""
+
+    def __init__(self, by_graph_id: dict[str, list] | None = None):
+        self.calls = []
+        self._by_graph_id = by_graph_id or {}
+
+    async def __call__(self, mailbox, graph_id):
+        self.calls.append((mailbox, graph_id))
+        return list(self._by_graph_id.get(graph_id, []))
+
+
+def test_attachment_bearing_message_is_enriched_with_metadata():
+    async def go():
+        metas = [
+            OutlookAttachmentMeta(
+                id="att-1", name="invoice.pdf", content_type="application/pdf", size=8421
+            )
+        ]
+        fetcher = _AttachmentFetcher({"graph-10": metas})
+        rec = _Recorder()
+        cursors = {"a@egg-ai.com": _T0}
+        p = _poller(
+            fetch=_static_fetch({"a@egg-ai.com": [_msg(10, has_attachments=True)]}),
+            publish=rec.publish,
+            cursors=cursors,
+            fetch_attachments=fetcher,
+        )
+        await p.run_cycle()
+
+        assert fetcher.calls == [("a@egg-ai.com", "graph-10")]
+        attachments = rec.published[0].data.email.attachments
+        assert [(a.filename, a.content_type, a.size) for a in attachments] == [
+            ("invoice.pdf", "application/pdf", 8421)
+        ]
+
+    asyncio.run(go())
+
+
+def test_message_without_attachments_makes_no_extra_call():
+    async def go():
+        fetcher = _AttachmentFetcher()
+        rec = _Recorder()
+        cursors = {"a@egg-ai.com": _T0}
+        p = _poller(
+            fetch=_static_fetch({"a@egg-ai.com": [_msg(10, has_attachments=False)]}),
+            publish=rec.publish,
+            cursors=cursors,
+            fetch_attachments=fetcher,
+        )
+        await p.run_cycle()
+
+        assert fetcher.calls == []  # gated behind the free has_attachments flag
+        assert rec.published[0].data.email.attachments == []
+
+    asyncio.run(go())
+
+
+def test_attachment_fetch_error_stops_batch_with_cursor_at_last_success():
+    async def go():
+        async def failing_fetcher(mailbox, graph_id):
+            raise GraphError(503, "service unavailable")
+
+        rec = _Recorder()
+        # msg(10) has no attachments (publishes fine); msg(20) bears attachments
+        # and its metadata fetch fails -> batch stops, cursor at msg(10).
+        batch = [_msg(10), _msg(20, has_attachments=True), _msg(30)]
+        cursors = {"a@egg-ai.com": _T0}
+        p = _poller(
+            fetch=_static_fetch({"a@egg-ai.com": batch}),
+            publish=rec.publish,
+            cursors=cursors,
+            fetch_attachments=failing_fetcher,
+        )
+        summaries = await p.run_cycle()
+
+        assert len(rec.published) == 1
+        assert cursors["a@egg-ai.com"] == _T0 + timedelta(seconds=10)
+        assert summaries[0].error is not None
 
     asyncio.run(go())
 
@@ -255,6 +350,15 @@ def test_build_poller_seeds_cursors_from_initial_cursor():
     assert p.cursors == {"a@egg-ai.com": _T0, "b@egg-ai.com": _T0}
 
 
+def test_build_poller_wires_attachment_fetcher():
+    from eggai import InMemoryTransport
+
+    from service import build_poller
+
+    p = build_poller(_settings(initial_cursor=_T0), InMemoryTransport())
+    assert p._fetch_attachments is not None  # enrichment path is wired
+
+
 def test_build_poller_defaults_cursors_to_now():
     from eggai import InMemoryTransport
 
@@ -270,6 +374,9 @@ def test_build_poller_defaults_cursors_to_now():
 
 if __name__ == "__main__":
     test_publishes_ascending_and_advances_cursor_to_batch_max()
+    test_attachment_bearing_message_is_enriched_with_metadata()
+    test_message_without_attachments_makes_no_extra_call()
+    test_attachment_fetch_error_stops_batch_with_cursor_at_last_success()
     test_fetch_called_with_current_cursor_and_stamps_fetched_at()
     test_empty_batch_leaves_cursor_unchanged()
     test_publish_failure_mid_batch_stops_and_leaves_cursor_at_last_success()
@@ -278,5 +385,6 @@ if __name__ == "__main__":
     test_one_mailbox_failure_does_not_block_others()
     test_messages_without_received_at_are_skipped()
     test_build_poller_seeds_cursors_from_initial_cursor()
+    test_build_poller_wires_attachment_fetcher()
     test_build_poller_defaults_cursors_to_now()
     print("All poller tests passed.")

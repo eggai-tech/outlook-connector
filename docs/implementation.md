@@ -69,11 +69,18 @@ loop or blocks the others:
 1. Fetch new messages (`receivedDateTime > cursor`).
 2. Sort the batch **ascending** by `receivedDateTime`.
 3. For each message, in order:
+   - If the message's free `has_attachments` flag is set, make **one extra Graph
+     call** (`list_attachments`, async-wrapped) to fetch per-attachment metadata;
+     messages without attachments make no extra call. See the
+     [email model](#email-model)'s attachments note.
    - Map it to the bus [email model](#email-model).
    - Publish an `email.received` event to the bus.
    - On success, advance the cursor to this message's `receivedDateTime`.
    - On the **first publish failure, stop the batch** and leave the cursor at
      the last successfully-published message. The next cycle resumes from there.
+     The attachment-metadata fetch runs inside this same per-message guard, so a
+     Graph error fetching metadata likewise stops the batch with the cursor at
+     the last success — never a duplicate, retried next cycle.
 4. On any **Graph API error**: log it, leave the cursor untouched, and continue
    to the next mailbox. The fixed-delay loop retries next cycle. The helper
    already retries `429`/`503` honoring `Retry-After`; everything else (other
@@ -141,7 +148,15 @@ An owned Pydantic model. outlook-helper's model is mapped into it.
 - `has_attachments` — native Graph boolean (free).
 - `attachments` — list of `{filename, content_type, size}`. Populating this
   costs an **extra Graph call per attachment-bearing email** (attachments are a
-  separate navigation property). No attachment *content* is bridged.
+  separate navigation property), so it is gated behind the free `has_attachments`
+  flag. No attachment *content* is bridged.
+
+  The extra call lives in the **poller**, not the boundary mapping: the mapping
+  ([`map_email`](../mapping.py)) stays a pure, synchronous, side-effect-free
+  function that receives the already-fetched metadata, while the poller owns all
+  Graph I/O (`list_attachments` via `asyncio.to_thread`). Mapping is defensive
+  about the helper's `Optional` attachment fields — a missing `name` /
+  `content_type` / `size` maps to `""` / `""` / `0` rather than raising.
 
 ## Configuration
 

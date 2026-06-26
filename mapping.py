@@ -7,16 +7,20 @@ required. Mapping is therefore **defensive** — a sparse-but-valid message maps
 to a valid ``Email`` rather than raising, because a mapping that raised would
 stall the whole mailbox (the poller processes a mailbox's batch in order).
 
-Only attachment *metadata presence* (``has_attachments``) is carried here; the
-per-attachment metadata list is populated in Piece 4.
+The native ``has_attachments`` flag is free and always carried. Per-attachment
+metadata costs an extra Graph call, so it is fetched by the poller only for
+attachment-bearing mail and passed in here as ``attachments``; when none is
+supplied the list maps to empty.
 """
 
+from collections.abc import Sequence
 from datetime import datetime
 
-from outlook_helper import OutlookMessage
+from outlook_helper import OutlookAttachmentMeta, OutlookMessage
 
 from schemas import (
     EMAIL_RECEIVED,
+    Attachment,
     Email,
     EmailAddress,
     EmailReceived,
@@ -36,6 +40,15 @@ def _address(addr) -> EmailAddress:
     return EmailAddress(name=addr.name, address=addr.address or "")
 
 
+def _attachment(meta: OutlookAttachmentMeta) -> Attachment:
+    """Map helper attachment metadata, tolerating its Optional name/type/size."""
+    return Attachment(
+        filename=meta.name or "",
+        content_type=meta.content_type or "",
+        size=meta.size or 0,
+    )
+
+
 def _extra_headers(msg: OutlookMessage) -> dict[str, str]:
     """Carry non-modeled internet message headers as a flat dict (last wins)."""
     extra: dict[str, str] = {}
@@ -46,8 +59,14 @@ def _extra_headers(msg: OutlookMessage) -> dict[str, str]:
     return extra
 
 
-def map_email(msg: OutlookMessage) -> Email:
-    """Map a helper ``OutlookMessage`` into the owned :class:`Email` model."""
+def map_email(
+    msg: OutlookMessage, attachments: Sequence[OutlookAttachmentMeta] = ()
+) -> Email:
+    """Map a helper ``OutlookMessage`` into the owned :class:`Email` model.
+
+    ``attachments`` is the per-attachment metadata the poller fetched for
+    attachment-bearing mail; it defaults to empty (no extra Graph call made).
+    """
     body = msg.body.content if msg.body and msg.body.content else ""
     content_type = (msg.body.content_type or "").lower() if msg.body else ""
     # HTML is requested globally (lossless superset); default there if unknown.
@@ -69,16 +88,21 @@ def map_email(msg: OutlookMessage) -> Email:
         body_content_type=body_content_type,
         preview=msg.body_preview,
         has_attachments=msg.has_attachments,
+        attachments=[_attachment(a) for a in attachments],
     )
 
 
 def build_event(
-    msg: OutlookMessage, *, source_mailbox: str, fetched_at: datetime
+    msg: OutlookMessage,
+    *,
+    source_mailbox: str,
+    fetched_at: datetime,
+    attachments: Sequence[OutlookAttachmentMeta] = (),
 ) -> EmailReceivedMessage:
     """Wrap a mapped email in the typed CloudEvents ``email.received`` envelope."""
     payload = EmailReceived(
         source_mailbox=source_mailbox,
         fetched_at=fetched_at,
-        email=map_email(msg),
+        email=map_email(msg, attachments),
     )
     return EmailReceivedMessage(source=_EVENT_SOURCE, type=EMAIL_RECEIVED, data=payload)

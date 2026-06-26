@@ -3,7 +3,7 @@
 Structural config comes from a YAML file; the ``client_secret`` is supplied via
 an environment variable only and must never appear in the YAML.
 
-Runnable standalone (`python test_config.py`) or under pytest.
+Runnable standalone (`python -m tests.test_config`) or under pytest.
 """
 
 import os
