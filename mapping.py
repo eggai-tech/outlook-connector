@@ -8,15 +8,16 @@ to a valid ``Email`` rather than raising, because a mapping that raised would
 stall the whole mailbox (the poller processes a mailbox's batch in order).
 
 The native ``has_attachments`` flag is free and always carried. Per-attachment
-metadata costs an extra Graph call, so it is fetched by the poller only for
-attachment-bearing mail and passed in here as ``attachments``; when none is
-supplied the list maps to empty.
+metadata *and content* cost an extra Graph call, so they are fetched by the
+poller only for attachment-bearing mail and passed in here as ``attachments``;
+when none is supplied the list maps to empty.
 """
 
+import base64
 from collections.abc import Sequence
 from datetime import datetime
 
-from outlook_helper import OutlookAttachmentMeta, OutlookMessage
+from outlook_helper import OutlookAttachment, OutlookMessage
 
 from schemas import (
     EMAIL_RECEIVED,
@@ -40,12 +41,19 @@ def _address(addr) -> EmailAddress:
     return EmailAddress(name=addr.name, address=addr.address or "")
 
 
-def _attachment(meta: OutlookAttachmentMeta) -> Attachment:
-    """Map helper attachment metadata, tolerating its Optional name/type/size."""
+def _attachment(att: OutlookAttachment) -> Attachment:
+    """Map a helper attachment, tolerating its Optional name/type/size.
+
+    The helper hands us the *decoded* attachment bytes; the owned model's
+    ``content`` is a ``Base64Bytes`` field, so it must be base64-encoded here
+    (otherwise the raw bytes are misread as base64 and mangled on the wire).
+    Item/reference attachments carry no bytes, so ``content`` stays ``None``.
+    """
     return Attachment(
-        filename=meta.name or "",
-        content_type=meta.content_type or "",
-        size=meta.size or 0,
+        filename=att.name or "",
+        content_type=att.content_type or "",
+        size=att.size or 0,
+        content=base64.b64encode(att.content) if att.content is not None else None,
     )
 
 
@@ -60,12 +68,13 @@ def _extra_headers(msg: OutlookMessage) -> dict[str, str]:
 
 
 def map_email(
-    msg: OutlookMessage, attachments: Sequence[OutlookAttachmentMeta] = ()
+    msg: OutlookMessage, attachments: Sequence[OutlookAttachment] = ()
 ) -> Email:
     """Map a helper ``OutlookMessage`` into the owned :class:`Email` model.
 
-    ``attachments`` is the per-attachment metadata the poller fetched for
-    attachment-bearing mail; it defaults to empty (no extra Graph call made).
+    ``attachments`` are the per-attachment metadata + content the poller
+    fetched for attachment-bearing mail; it defaults to empty (no extra Graph
+    call made).
     """
     body = msg.body.content if msg.body and msg.body.content else ""
     content_type = (msg.body.content_type or "").lower() if msg.body else ""
@@ -97,7 +106,7 @@ def build_event(
     *,
     source_mailbox: str,
     fetched_at: datetime,
-    attachments: Sequence[OutlookAttachmentMeta] = (),
+    attachments: Sequence[OutlookAttachment] = (),
 ) -> EmailReceivedMessage:
     """Wrap a mapped email in the typed CloudEvents ``email.received`` envelope."""
     payload = EmailReceived(

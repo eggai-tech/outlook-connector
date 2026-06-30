@@ -13,8 +13,10 @@ import asyncio
 from datetime import datetime, timezone
 
 from eggai import Channel, InMemoryTransport
+import base64
+
 from outlook_helper import EmailAddress as HelperAddress
-from outlook_helper import OutlookAttachmentMeta, OutlookBody, OutlookMessage
+from outlook_helper import OutlookAttachment, OutlookBody, OutlookMessage
 
 from config import AzureConfig, BusConfig, Settings
 from schemas import EMAIL_RECEIVED
@@ -104,8 +106,12 @@ def test_attachment_bearing_message_published_with_metadata():
         async def fetch_attachments(mailbox, graph_id):
             attachment_calls.append((mailbox, graph_id))
             return [
-                OutlookAttachmentMeta(
-                    id="a-1", name="invoice.pdf", content_type="application/pdf", size=2048
+                OutlookAttachment(
+                    id="a-1",
+                    name="invoice.pdf",
+                    content_type="application/pdf",
+                    size=5,
+                    content=b"hello",
                 )
             ]
 
@@ -117,9 +123,16 @@ def test_attachment_bearing_message_published_with_metadata():
         assert attachment_calls == [("invoices@egg-ai.com", "graph-att")]
         assert len(received) == 1
         attachments = received[0]["data"]["email"]["attachments"]
-        assert attachments == [
-            {"filename": "invoice.pdf", "content_type": "application/pdf", "size": 2048}
-        ]
+        assert len(attachments) == 1
+        att = attachments[0]
+        assert att["filename"] == "invoice.pdf"
+        assert att["content_type"] == "application/pdf"
+        assert att["size"] == 5
+        # Content survives delivery; base64 on a JSON wire, bytes in-process.
+        content = att["content"]
+        if isinstance(content, str):
+            content = base64.b64decode(content)
+        assert content == b"hello"
 
         await transport.disconnect()
 

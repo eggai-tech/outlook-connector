@@ -19,7 +19,7 @@ import httpx
 from outlook_helper import EmailAddress as HelperAddress
 from outlook_helper import (
     GraphError,
-    OutlookAttachmentMeta,
+    OutlookAttachment,
     OutlookBody,
     OutlookMessage,
 )
@@ -152,14 +152,22 @@ class _AttachmentFetcher:
         return list(self._by_graph_id.get(graph_id, []))
 
 
-def test_attachment_bearing_message_is_enriched_with_metadata():
+def test_attachment_bearing_message_is_enriched_with_content():
     async def go():
-        metas = [
-            OutlookAttachmentMeta(
-                id="att-1", name="invoice.pdf", content_type="application/pdf", size=8421
-            )
+        atts = [
+            OutlookAttachment(
+                id="att-1",
+                name="invoice.pdf",
+                content_type="application/pdf",
+                size=5,
+                content=b"hello",
+            ),
+            # An item attachment carries no bytes -> content stays None.
+            OutlookAttachment(
+                id="att-2", name="forwarded.eml", content_type="message/rfc822", size=99
+            ),
         ]
-        fetcher = _AttachmentFetcher({"graph-10": metas})
+        fetcher = _AttachmentFetcher({"graph-10": atts})
         rec = _Recorder()
         cursors = {"a@egg-ai.com": _T0}
         p = _poller(
@@ -172,8 +180,9 @@ def test_attachment_bearing_message_is_enriched_with_metadata():
 
         assert fetcher.calls == [("a@egg-ai.com", "graph-10")]
         attachments = rec.published[0].data.email.attachments
-        assert [(a.filename, a.content_type, a.size) for a in attachments] == [
-            ("invoice.pdf", "application/pdf", 8421)
+        assert [(a.filename, a.content_type, a.size, a.content) for a in attachments] == [
+            ("invoice.pdf", "application/pdf", 5, b"hello"),
+            ("forwarded.eml", "message/rfc822", 99, None),
         ]
 
     asyncio.run(go())
@@ -374,7 +383,7 @@ def test_build_poller_defaults_cursors_to_now():
 
 if __name__ == "__main__":
     test_publishes_ascending_and_advances_cursor_to_batch_max()
-    test_attachment_bearing_message_is_enriched_with_metadata()
+    test_attachment_bearing_message_is_enriched_with_content()
     test_message_without_attachments_makes_no_extra_call()
     test_attachment_fetch_error_stops_batch_with_cursor_at_last_success()
     test_fetch_called_with_current_cursor_and_stamps_fetched_at()

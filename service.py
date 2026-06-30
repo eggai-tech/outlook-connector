@@ -134,10 +134,11 @@ def build_poller(settings, transport: Transport):
         )
 
     async def fetch_attachments(mailbox: str, graph_id: str):
-        # The extra Graph call, made only for attachment-bearing mail; the helper
-        # is synchronous so it runs off the event loop like every other call.
+        # The extra Graph call, made only for attachment-bearing mail; fetches
+        # metadata + content. The helper is synchronous so it runs off the event
+        # loop like every other call.
         client = clients[mailbox]
-        return await asyncio.to_thread(client.list_attachments, graph_id)
+        return await asyncio.to_thread(client.get_attachments, graph_id)
 
     channel = Channel(settings.bus.channel, transport=transport)
     seed = settings.initial_cursor or datetime.now(timezone.utc)
@@ -152,7 +153,9 @@ def build_poller(settings, transport: Transport):
     )
 
 
-async def run_service(settings, transport: Transport | None = None, cycle: Cycle | None = None):
+async def run_service(
+    settings, transport: Transport | None = None, cycle: Cycle | None = None
+):
     """Build, run, and drain the service from validated ``settings``."""
     from bus import build_transport
 
