@@ -11,7 +11,7 @@ dependencies = [
 ]
 
 [tool.uv.sources]
-outlook-helper = { git = "ssh://git@github.com/eggai-tech/outlook-helper.git", tag = "v0.2.0" }
+outlook-helper = { git = "ssh://git@github.com/eggai-tech/outlook-helper.git", tag = "v0.3.0" }
 
 [dependency-groups]
 dev = [

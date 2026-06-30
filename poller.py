@@ -18,13 +18,13 @@ Cursor / failure semantics (the "never duplicate, occasionally drop" principle):
 - On any **Graph/transport error** the cursor is left untouched and the next
   mailbox is polled; the fixed-delay loop retries next cycle.
 
-Attachment metadata is enriched inline: for each message whose free
+Attachments are enriched inline: for each message whose free
 ``has_attachments`` flag is set, the poller makes one extra Graph call via the
-injected ``fetch_attachments`` collaborator and the result is mapped onto the
-event. Messages without attachments make **no** extra call. That call runs
-inside the same per-message ``try`` as publish, so a Graph error fetching
-metadata stops the batch with the cursor at the last success — the "never
-duplicate" path, retried next cycle.
+injected ``fetch_attachments`` collaborator (metadata **and** content) and the
+result is mapped onto the event. Messages without attachments make **no** extra
+call. That call runs inside the same per-message ``try`` as publish, so a Graph
+error fetching attachments stops the batch with the cursor at the last success
+— the "never duplicate" path, retried next cycle.
 
 The ``fetch``, ``publish`` and ``fetch_attachments`` collaborators are injected
 so the cursor logic is testable without a live Graph API or bus;
@@ -37,7 +37,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 
 import httpx
-from outlook_helper import GraphError, OutlookAttachmentMeta, OutlookMessage
+from outlook_helper import GraphError, OutlookAttachment, OutlookMessage
 
 from mapping import build_event
 
@@ -47,9 +47,9 @@ logger = logging.getLogger(__name__)
 # call). Publish a built bus event. Both injected for testability.
 Fetch = Callable[[str, datetime], Awaitable[list[OutlookMessage]]]
 Publish = Callable[[object], Awaitable[None]]
-# Fetch per-attachment metadata for one message (mailbox, graph_id) -> the extra
-# async-wrapped Graph call, made only for attachment-bearing mail. Injected too.
-FetchAttachments = Callable[[str, str], Awaitable[list[OutlookAttachmentMeta]]]
+# Fetch per-attachment metadata + content for one message (mailbox, graph_id) ->
+# the extra async-wrapped Graph call, made only for attachment-bearing mail.
+FetchAttachments = Callable[[str, str], Awaitable[list[OutlookAttachment]]]
 
 # Errors that mean "the Graph call failed" — leave the cursor, try next cycle.
 # The helper already retries 429/503 honoring Retry-After; everything else
@@ -148,8 +148,8 @@ class Poller:
 
     async def _attachment_metadata(
         self, mailbox: str, message: OutlookMessage
-    ) -> list[OutlookAttachmentMeta]:
-        """Fetch per-attachment metadata, but only for attachment-bearing mail.
+    ) -> list[OutlookAttachment]:
+        """Fetch per-attachment metadata + content, only for attachment-bearing mail.
 
         Gated on the free native ``has_attachments`` flag so messages without
         attachments never incur the extra Graph call. Any Graph/transport error

@@ -11,7 +11,7 @@ Runnable standalone (`python -m tests.test_mapping`) or under pytest.
 from datetime import datetime, timezone
 
 from outlook_helper import EmailAddress as HelperAddress
-from outlook_helper import OutlookAttachmentMeta, OutlookBody, OutlookMessage
+from outlook_helper import OutlookAttachment, OutlookBody, OutlookMessage
 from outlook_helper.schemas import InternetMessageHeader
 
 from mapping import build_event, map_email
@@ -86,45 +86,66 @@ def test_attachments_empty_when_none_supplied():
     assert email.attachments == []
 
 
-def test_maps_attachment_metadata():
-    metas = [
-        OutlookAttachmentMeta(
-            id="att-1", name="invoice.pdf", content_type="application/pdf", size=8421
+def test_maps_attachments_with_content():
+    atts = [
+        OutlookAttachment(
+            id="att-1",
+            name="invoice.pdf",
+            content_type="application/pdf",
+            size=5,
+            content=b"hello",
         ),
-        OutlookAttachmentMeta(
+        # Item/reference attachment: metadata present, no bytes.
+        OutlookAttachment(
             id="att-2", name="logo.png", content_type="image/png", size=512
         ),
     ]
-    email = map_email(_full_message(), attachments=metas)
-    assert [(a.filename, a.content_type, a.size) for a in email.attachments] == [
-        ("invoice.pdf", "application/pdf", 8421),
-        ("logo.png", "image/png", 512),
+    email = map_email(_full_message(), attachments=atts)
+    assert [
+        (a.filename, a.content_type, a.size, a.content) for a in email.attachments
+    ] == [
+        ("invoice.pdf", "application/pdf", 5, b"hello"),
+        ("logo.png", "image/png", 512, None),
     ]
 
 
-def test_attachment_metadata_defensive_defaults():
+def test_attachment_defensive_defaults():
     # The helper makes name/content_type/size Optional; the owned model requires
     # them, so a sparse attachment maps to safe defaults rather than raising.
-    meta = OutlookAttachmentMeta(id="att-x", name=None, content_type=None, size=None)
-    email = map_email(_full_message(), attachments=[meta])
-    [att] = email.attachments
-    assert (att.filename, att.content_type, att.size) == ("", "", 0)
+    att = OutlookAttachment(id="att-x", name=None, content_type=None, size=None)
+    email = map_email(_full_message(), attachments=[att])
+    [mapped] = email.attachments
+    assert (mapped.filename, mapped.content_type, mapped.size, mapped.content) == (
+        "",
+        "",
+        0,
+        None,
+    )
 
 
 def test_build_event_carries_attachments():
-    metas = [
-        OutlookAttachmentMeta(
-            id="att-1", name="invoice.pdf", content_type="application/pdf", size=8421
+    atts = [
+        OutlookAttachment(
+            id="att-1",
+            name="invoice.pdf",
+            content_type="application/pdf",
+            size=5,
+            content=b"hello",
         )
     ]
     event = build_event(
         _full_message(),
         source_mailbox="invoices@egg-ai.com",
         fetched_at=_RECEIVED_AT,
-        attachments=metas,
+        attachments=atts,
     )
     [att] = event.data.email.attachments
-    assert (att.filename, att.content_type, att.size) == ("invoice.pdf", "application/pdf", 8421)
+    assert (att.filename, att.content_type, att.size, att.content) == (
+        "invoice.pdf",
+        "application/pdf",
+        5,
+        b"hello",
+    )
 
 
 def test_falls_back_to_graph_id_when_internet_message_id_missing():

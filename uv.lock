@@ -391,7 +391,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "eggai", specifier = ">=0.3.2" },
-    { name = "outlook-helper", git = "ssh://git@github.com/eggai-tech/outlook-helper.git?tag=v0.2.0" },
+    { name = "outlook-helper", git = "ssh://git@github.com/eggai-tech/outlook-helper.git?tag=v0.3.0" },
     { name = "pydantic-settings", extras = ["yaml"], specifier = ">=2.0" },
 ]
 
@@ -401,7 +401,7 @@ dev = [{ name = "pytest", specifier = ">=9.1.1" }]
 [[package]]
 name = "outlook-helper"
 version = "0.2.0"
-source = { git = "ssh://git@github.com/eggai-tech/outlook-helper.git?tag=v0.2.0#8656a9c0380c4429738e7a3a8aaa83c98399a30d" }
+source = { git = "ssh://git@github.com/eggai-tech/outlook-helper.git?tag=v0.3.0#b2c36dc4d25786bf2869117cd43385129bc4dd26" }
 dependencies = [
     { name = "click" },
     { name = "httpx" },

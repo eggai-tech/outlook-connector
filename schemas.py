@@ -5,15 +5,19 @@ The on-the-wire form is EggAI's CloudEvents 1.0 envelope (JSON) wrapping a typed
 ``outlook-helper``'s ``OutlookMessage`` is mapped into :class:`Email` at the
 boundary, so the bus contract is decoupled from that dependency's schema.
 
-Only attachment *metadata* is carried — never attachment content (out of scope
-for the inbound MVP).
+Attachment *content* is carried inline alongside metadata when available
+(``Base64Bytes`` keeps it JSON-safe on the wire). Item/reference attachments
+have no bytes, so their ``content`` is ``None``. Large attachments inflate the
+event and may exceed broker message limits (e.g. Kafka's ~1MB default
+``max.message.bytes``) — a conscious tradeoff; the helper's
+``download_attachment`` remains for streaming large files to disk instead.
 """
 
 from datetime import datetime
 from typing import Literal
 
 from eggai.schemas import BaseMessage
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import Base64Bytes, BaseModel, ConfigDict, Field
 
 # The event type carried on the CloudEvents envelope.
 EMAIL_RECEIVED = "email.received"
@@ -27,11 +31,17 @@ class EmailAddress(BaseModel):
 
 
 class Attachment(BaseModel):
-    """Attachment metadata only — no content is bridged."""
+    """Attachment metadata plus content when Graph provides bytes.
+
+    ``content`` is the raw attachment bytes (base64-encoded on the wire via
+    ``Base64Bytes``); it is ``None`` for item/reference attachments, which
+    carry no ``contentBytes``.
+    """
 
     filename: str
     content_type: str
     size: int  # byte length reported by Graph
+    content: Base64Bytes | None = None
 
 
 class Email(BaseModel):

@@ -3,6 +3,7 @@
 Runnable standalone (`python -m tests.test_schemas`) or under pytest.
 """
 
+import base64
 from datetime import datetime, timezone
 
 import pytest
@@ -160,11 +161,26 @@ def test_email_address_address_is_required():
         EmailAddress(name="No Address")
 
 
-def test_attachment_carries_metadata_only():
+def test_attachment_content_defaults_to_none():
     att = Attachment(filename="f.pdf", content_type="application/pdf", size=10)
-    # The owned contract never carries attachment content.
-    assert not hasattr(att, "content")
-    assert "content_base64" not in att.model_dump()
+    # Content is optional; absent unless the helper supplied bytes.
+    assert att.content is None
+
+
+def test_attachment_content_round_trips_as_base64():
+    # The Base64Bytes field decodes its input, so callers pass base64-encoded
+    # bytes (the mapping boundary encodes the helper's raw attachment bytes).
+    att = Attachment(
+        filename="f.pdf",
+        content_type="application/pdf",
+        size=5,
+        content=base64.b64encode(b"hello"),
+    )
+    # In memory the field holds the decoded bytes; on the wire it is base64.
+    assert att.content == b"hello"
+    dumped = att.model_dump(mode="json")
+    assert base64.b64decode(dumped["content"]) == b"hello"
+    assert Attachment.model_validate_json(att.model_dump_json()).content == b"hello"
 
 
 if __name__ == "__main__":
@@ -175,5 +191,7 @@ if __name__ == "__main__":
     test_required_email_fields_are_enforced()
     test_body_content_type_rejects_unknown_value()
     test_email_address_address_is_required()
+    test_attachment_content_defaults_to_none()
+    test_attachment_content_round_trips_as_base64()
     test_attachment_carries_metadata_only()
     print("All tests passed.")
