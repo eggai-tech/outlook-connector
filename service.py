@@ -96,18 +96,14 @@ def _install_signal_handlers(loop: asyncio.AbstractEventLoop, handler) -> None:
             signal.signal(sig, lambda *_: handler())
 
 
-def build_poller(settings, transport: Transport):
-    """Wire the real :class:`~poller.Poller` from validated ``settings``.
+def _build_clients(settings) -> dict:
+    """One app-only :class:`OutlookClient` per configured mailbox.
 
-    Builds one app-only :class:`OutlookClient` per mailbox (the helper is bound
-    to a single mailbox), seeds each cursor to ``initial_cursor`` or process-start
-    "now", and publishes to the bus channel on ``transport``. Every (synchronous)
-    helper call runs via :func:`asyncio.to_thread` so a blocking request or a
-    ``Retry-After`` sleep never stalls the event loop.
+    The helper client is bound to a single mailbox, so both the inbound poller
+    and the outbound listener need one per mailbox; this shared seam builds them
+    from the validated Azure credentials.
     """
     from outlook_helper import AppOnlyConfig, ClientSecretCredential, OutlookClient
-
-    from poller import Poller
 
     credential = ClientSecretCredential(
         AppOnlyConfig(
@@ -116,10 +112,24 @@ def build_poller(settings, transport: Transport):
             client_secret=settings.client_secret,
         )
     )
-    clients = {
+    return {
         mailbox: OutlookClient(credential, mailbox=mailbox)
         for mailbox in settings.mailboxes
     }
+
+
+def build_poller(settings, transport: Transport):
+    """Wire the real :class:`~poller.Poller` from validated ``settings``.
+
+    Builds one app-only :class:`OutlookClient` per mailbox, seeds each cursor to
+    ``initial_cursor`` or process-start "now", and publishes to the bus channel
+    on ``transport``. Every (synchronous) helper call runs via
+    :func:`asyncio.to_thread` so a blocking request or a ``Retry-After`` sleep
+    never stalls the event loop.
+    """
+    from poller import Poller
+
+    clients = _build_clients(settings)
 
     async def fetch(mailbox: str, cursor: datetime):
         client = clients[mailbox]
@@ -153,15 +163,73 @@ def build_poller(settings, transport: Transport):
     )
 
 
+def build_send_listener(settings, transport: Transport):
+    """Wire the real :class:`~listener.Agent` from validated ``settings``.
+
+    Builds one app-only :class:`OutlookClient` per mailbox and supplies a ``send``
+    collaborator that maps an :class:`~schemas.EmailSend` onto the helper: a fresh
+    ``send_email``, or ``reply`` when ``reply_to_graph_id`` is set (threaded
+    delivery). The send-from ``mailbox`` is validated against the configured set —
+    an unknown mailbox raises rather than silently sending from a default. Like
+    the poller, every (synchronous) helper call runs via :func:`asyncio.to_thread`.
+    """
+    from listener import make_send_listener
+    from schemas import EmailSend
+
+    clients = _build_clients(settings)
+
+    async def send(request: EmailSend) -> None:
+        client = clients.get(request.mailbox)
+        if client is None:
+            raise ValueError(f"Unknown send mailbox: {request.mailbox!r}")
+        html = request.body_content_type != "text"
+        if request.reply_to_graph_id:
+            await asyncio.to_thread(
+                lambda: client.reply(
+                    request.reply_to_graph_id, request.body, html=html
+                )
+            )
+            return
+        to = [a.address for a in request.to]
+        cc = [a.address for a in request.cc] or None
+        bcc = [a.address for a in request.bcc] or None
+        await asyncio.to_thread(
+            lambda: client.send_email(
+                to, request.subject, request.body, cc=cc, bcc=bcc, html=html
+            )
+        )
+
+    return make_send_listener(
+        channel=settings.bus.channel, transport=transport, send=send
+    )
+
+
 async def run_service(
-    settings, transport: Transport | None = None, cycle: Cycle | None = None
+    settings,
+    transport: Transport | None = None,
+    cycle: Cycle | None = None,
+    listener=None,
 ):
-    """Build, run, and drain the service from validated ``settings``."""
+    """Build, run, and drain the service from validated ``settings``.
+
+    Runs both directions on the one shared bus connection: the inbound poll loop
+    (``cycle``) and the outbound ``email.send`` ``listener``. ``cycle``/
+    ``listener`` are injectable for tests; either ``None`` builds the real one.
+
+    Ordering matters: the listener is started **first**. ``Agent.start`` registers
+    its subscription and *then* connects the transport, and a transport like Kafka
+    only begins consuming for subscribers registered **before** the broker is
+    started — so subscribing must happen before any other code (the Service, the
+    poller's publishing channel) connects the shared transport. On shutdown the
+    listener is drained first so no new send is accepted once we begin stopping.
+    """
     from bus import build_transport
 
     transport = transport or build_transport(settings.bus)
     if cycle is None:
         cycle = build_poller(settings, transport).run_cycle
+    if listener is None:
+        listener = build_send_listener(settings, transport)
     service = Service(
         mailboxes=settings.mailboxes,
         channel=settings.bus.channel,
@@ -170,9 +238,13 @@ async def run_service(
         cycle=cycle,
     )
     _install_signal_handlers(asyncio.get_running_loop(), service.request_stop)
+    # Subscribe-then-connect: register the email.send consumer before the shared
+    # transport is connected, or Kafka never starts consuming for it.
+    await listener.start()
     await service.start()
     try:
         await service.run()
     finally:
+        await listener.stop()
         await service.stop()
     return service

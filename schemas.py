@@ -19,8 +19,9 @@ from typing import Literal
 from eggai.schemas import BaseMessage
 from pydantic import Base64Bytes, BaseModel, ConfigDict, Field
 
-# The event type carried on the CloudEvents envelope.
-EMAIL_RECEIVED = "email.received"
+# The event types carried on the CloudEvents envelope.
+EMAIL_RECEIVED = "email.received"  # inbound: mail observed -> bus
+EMAIL_SEND = "email.send"  # outbound: an agent's request -> mail
 
 
 class EmailAddress(BaseModel):
@@ -91,3 +92,46 @@ class EmailReceived(BaseModel):
 
 # Typed CloudEvents envelope: validates the payload on publish and subscribe.
 EmailReceivedMessage = BaseMessage[EmailReceived]
+
+
+class EmailSend(BaseModel):
+    """The ``data`` payload of an ``email.send`` event — an outbound request.
+
+    The mirror of :class:`EmailReceived`: where that reports mail the connector
+    *observed*, this is a request an agent puts on the bus for the connector to
+    *deliver* as mail. ``mailbox`` is the address to send **from**; the connector
+    rejects any value not in its configured mailbox set (an agent cannot send as
+    an arbitrary identity).
+
+    ``reply_to_graph_id`` opts into threaded delivery: when set, the connector
+    replies to that Graph message (preserving the conversation) instead of
+    composing a fresh mail, so ``subject`` is taken from the original. The
+    ``graph_id`` an agent uses here is the one carried on the inbound
+    :class:`Email` it is replying to.
+
+    Attachments are intentionally omitted from this first cut: ``outlook-helper``
+    accepts attachments as file paths, which does not match this contract's
+    inline-bytes model, and outbound attachment content is out of MVP scope.
+    """
+
+    mailbox: str  # send-from address; must be a configured mailbox
+    to: list[EmailAddress] = Field(min_length=1)
+    cc: list[EmailAddress] = Field(default_factory=list)
+    bcc: list[EmailAddress] = Field(default_factory=list)
+    subject: str = ""
+    body: str
+    body_content_type: Literal["html", "text"] = "html"
+    # Optional threaded reply: the Graph item id of the message to reply to.
+    reply_to_graph_id: str | None = None
+
+
+class EmailSendMessage(BaseMessage[EmailSend]):
+    """Typed CloudEvents envelope for ``email.send``.
+
+    ``type`` carries a default (unlike the base envelope's required ``type``) so
+    a typed ``data_type=EmailSendMessage`` subscription matches on it: EggAI's
+    typed-subscription filter compares each incoming event against this default
+    and skips anything else (e.g. ``email.received`` on the same channel).
+    """
+
+    type: str = EMAIL_SEND
