@@ -136,6 +136,7 @@ def build_poller(settings, transport: Transport):
         return await asyncio.to_thread(
             lambda: list(
                 client.search_email(
+                    folder="inbox",  # received mail only — exclude Sent Items
                     since_exclusive=cursor,  # strict >, sub-second precise
                     include_headers=True,  # internet_message_id + In-Reply-To/References
                     html_body=True,  # body guaranteed HTML
