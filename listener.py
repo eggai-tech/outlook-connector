@@ -23,7 +23,7 @@ from collections.abc import Awaitable, Callable
 from eggai import Agent, Channel
 from eggai.transport.base import Transport
 
-from schemas import EmailSend, EmailSendMessage
+from schemas import EmailSend
 
 logger = logging.getLogger(__name__)
 
@@ -42,15 +42,21 @@ def make_send_listener(*, channel: str, transport: Transport, send: Send) -> Age
     agent = Agent("outlook-send-listener", transport=transport)
     subscribe_channel = Channel(channel, transport=transport)
 
-    @agent.subscribe(channel=subscribe_channel, data_type=EmailSendMessage)
-    async def on_send(message: EmailSendMessage) -> None:
-        request = message.data
+    @agent.subscribe(
+        channel=subscribe_channel,
+        filter_by_message=lambda event: event.get("type") == "email.send",
+    )
+    async def on_send(message: dict) -> None:
+        # `filter_by_message` delivers the raw CloudEvents dict (not a typed
+        # EmailSendMessage), so validate its `data` payload into EmailSend here.
+        request = EmailSend.model_validate(message["data"])
+        email = request.email
         logger.info(
             "email.send: from=%s to=%d recipient(s) reply=%s subject=%r",
-            request.mailbox,
-            len(request.to),
-            bool(request.reply_to_graph_id),
-            request.subject,
+            request.source_mailbox,
+            len(email.to),
+            bool(email.graph_id),
+            email.subject,
         )
         await send(request)
 

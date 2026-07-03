@@ -180,23 +180,23 @@ def build_send_listener(settings, transport: Transport):
     clients = _build_clients(settings)
 
     async def send(request: EmailSend) -> None:
-        client = clients.get(request.mailbox)
+        client = clients.get(request.source_mailbox)
         if client is None:
-            raise ValueError(f"Unknown send mailbox: {request.mailbox!r}")
-        html = request.body_content_type != "text"
-        if request.reply_to_graph_id:
+            raise ValueError(f"Unknown send mailbox: {request.source_mailbox!r}")
+        email = request.email
+        html = email.body_content_type != "text"
+        # A non-empty graph_id opts into threaded delivery (reply); otherwise a
+        # fresh send. The payload carries no bcc, so bcc delivery is unsupported.
+        if email.graph_id:
             await asyncio.to_thread(
-                lambda: client.reply(
-                    request.reply_to_graph_id, request.body, html=html
-                )
+                lambda: client.reply(email.graph_id, email.body, html=html)
             )
             return
-        to = [a.address for a in request.to]
-        cc = [a.address for a in request.cc] or None
-        bcc = [a.address for a in request.bcc] or None
+        to = [a.address for a in email.to]
+        cc = [a.address for a in email.cc] or None
         await asyncio.to_thread(
             lambda: client.send_email(
-                to, request.subject, request.body, cc=cc, bcc=bcc, html=html
+                to, email.subject, email.body, cc=cc, html=html
             )
         )
 
