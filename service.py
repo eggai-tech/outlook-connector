@@ -19,10 +19,34 @@ import signal
 from collections.abc import Awaitable, Callable
 from datetime import datetime, timezone
 
+import httpx
 from eggai import Channel
 from eggai.transport.base import Transport
 
 logger = logging.getLogger(__name__)
+
+
+def _create_reply_draft(client, graph_id: str) -> str:
+    """Create a draft reply in the original message's thread; return its id.
+
+    The one Graph call ``outlook_helper`` doesn't expose: ``createReply`` makes a
+    draft that inherits the original message's ``conversationId`` (so the sent
+    mail threads on Outlook). The draft defaults to replying to the original
+    *sender*; the caller then re-addresses it via ``update_draft`` and sends it,
+    so a threaded reply can be delivered to an arbitrary recipient instead.
+
+    Made with a raw Graph call (bearer token from the client's credential); every
+    other step reuses the helper's public ``update_draft``/``send_draft``.
+    """
+    from outlook_helper.http import DEFAULT_BASE_URL
+
+    resp = httpx.post(
+        f"{DEFAULT_BASE_URL}{client.base_path}/messages/{graph_id}/createReply",
+        headers={"Authorization": f"Bearer {client.credential.get_token()}"},
+        timeout=30,
+    )
+    resp.raise_for_status()
+    return resp.json()["id"]
 
 # A unit of per-cycle work. The skeleton uses a no-op; Piece 3 supplies polling.
 Cycle = Callable[[], Awaitable[None]]
@@ -169,10 +193,13 @@ def build_send_listener(settings, transport: Transport):
 
     Builds one app-only :class:`OutlookClient` per mailbox and supplies a ``send``
     collaborator that maps an :class:`~schemas.EmailSend` onto the helper: a fresh
-    ``send_email``, or ``reply`` when ``reply_to_graph_id`` is set (threaded
-    delivery). The send-from ``mailbox`` is validated against the configured set —
-    an unknown mailbox raises rather than silently sending from a default. Like
-    the poller, every (synchronous) helper call runs via :func:`asyncio.to_thread`.
+    ``send_email``, or — when ``email.graph_id`` is set — a *threaded* delivery
+    that anchors on that message's conversation (via a ``createReply`` draft) yet
+    is re-addressed to ``email.to`` and sent, so the mail threads on Outlook but
+    reaches the requested recipients rather than the original sender. The
+    send-from ``source_mailbox`` is validated against the configured set — an
+    unknown mailbox raises rather than silently sending from a default. Like the
+    poller, every (synchronous) helper call runs via :func:`asyncio.to_thread`.
     """
     from listener import make_send_listener
     from schemas import EmailSend
@@ -180,23 +207,36 @@ def build_send_listener(settings, transport: Transport):
     clients = _build_clients(settings)
 
     async def send(request: EmailSend) -> None:
-        client = clients.get(request.mailbox)
+        client = clients.get(request.source_mailbox)
         if client is None:
-            raise ValueError(f"Unknown send mailbox: {request.mailbox!r}")
-        html = request.body_content_type != "text"
-        if request.reply_to_graph_id:
-            await asyncio.to_thread(
-                lambda: client.reply(
-                    request.reply_to_graph_id, request.body, html=html
+            raise ValueError(f"Unknown send mailbox: {request.source_mailbox!r}")
+        email = request.email
+        html = email.body_content_type != "text"
+        to = [a.address for a in email.to]
+        cc = [a.address for a in email.cc] or None
+        # A non-empty graph_id is the thread anchor: reply-draft on the original
+        # (inherits its conversation), then re-address to email.to and send — a
+        # threaded mail delivered to the given recipients, not the original
+        # sender. Empty graph_id -> a fresh send. No bcc is carried in either case.
+        if email.graph_id:
+
+            def deliver() -> None:
+                draft_id = _create_reply_draft(client, email.graph_id)
+                client.update_draft(
+                    draft_id,
+                    to=to,
+                    cc=cc,
+                    body=email.body,
+                    subject=email.subject or None,  # keep inherited "Re: …" if empty
+                    html=html,
                 )
-            )
+                client.send_draft(draft_id)
+
+            await asyncio.to_thread(deliver)
             return
-        to = [a.address for a in request.to]
-        cc = [a.address for a in request.cc] or None
-        bcc = [a.address for a in request.bcc] or None
         await asyncio.to_thread(
             lambda: client.send_email(
-                to, request.subject, request.body, cc=cc, bcc=bcc, html=html
+                to, email.subject, email.body, cc=cc, html=html
             )
         )
 
