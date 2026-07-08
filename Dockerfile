@@ -9,10 +9,7 @@ COPY --from=ghcr.io/astral-sh/uv:0.11.26 /uv /uvx /bin/
 # git + ssh are needed to fetch the private `outlook-helper` dependency
 # (ssh://git@github.com/eggai-tech/outlook-helper.git) during `uv sync`.
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends git openssh-client \
-    && rm -rf /var/lib/apt/lists/* \
-    && mkdir -p -m 0700 /root/.ssh \
-    && ssh-keyscan github.com >> /root/.ssh/known_hosts
+    && apt-get install -y --no-install-recommends git openssh-client
 
 ENV UV_COMPILE_BYTECODE=1 \
     UV_LINK_MODE=copy \
