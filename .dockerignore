@@ -1,0 +1,20 @@
+.git
+.github
+.venv
+__pycache__/
+*.py[oc]
+.pytest_cache
+build/
+dist/
+wheels/
+*.egg-info
+
+# Secrets / local config — never bake into the image
+.env*
+config*.yaml
+!config.yaml.example
+
+.DS_Store
+docs
+tests
+development
