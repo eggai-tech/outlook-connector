@@ -1,6 +1,6 @@
 """The inbound poll loop's per-cycle, per-mailbox processing.
 
-Implements `the spec <docs/implementation.md#per-cycle-per-mailbox-processing>`.
+Implements `the spec <docs/DESIGN.md#per-cycle-per-mailbox-processing>`.
 :meth:`Poller.run_cycle` is the unit of work the :class:`~service.Service`
 fixed-delay loop calls each cycle; it polls every configured mailbox
 **sequentially**, each inside its own ``try/except`` so one mailbox's failure
@@ -39,7 +39,7 @@ from datetime import datetime, timezone
 import httpx
 from outlook_helper import GraphError, OutlookAttachment, OutlookMessage
 
-from mapping import build_event
+from outlook_connector.mapping import build_event
 
 logger = logging.getLogger(__name__)
 

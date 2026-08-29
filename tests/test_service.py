@@ -11,9 +11,9 @@ import asyncio
 from eggai import InMemoryTransport, KafkaTransport
 from eggai.transport.base import Transport
 
-from bus import build_transport
-from config import BusConfig
-from service import Service
+from outlook_connector.bus import build_transport
+from outlook_connector.config import BusConfig
+from outlook_connector.service import Service
 
 
 # --- transport factory -----------------------------------------------------

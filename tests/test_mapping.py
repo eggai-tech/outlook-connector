@@ -14,8 +14,8 @@ from outlook_helper import EmailAddress as HelperAddress
 from outlook_helper import OutlookAttachment, OutlookBody, OutlookMessage
 from outlook_helper.schemas import InternetMessageHeader
 
-from mapping import build_event, map_email
-from schemas import EMAIL_RECEIVED, EmailReceived
+from outlook_connector.mapping import build_event, map_email
+from outlook_connector.schemas import EMAIL_RECEIVED, EmailReceived
 
 _RECEIVED_AT = datetime(2026, 6, 26, 9, 29, 12, 500000, tzinfo=timezone.utc)
 

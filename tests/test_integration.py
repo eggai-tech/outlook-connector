@@ -18,9 +18,9 @@ import base64
 from outlook_helper import EmailAddress as HelperAddress
 from outlook_helper import OutlookAttachment, OutlookBody, OutlookMessage
 
-from config import AzureConfig, BusConfig, Settings
-from schemas import EMAIL_RECEIVED
-from service import build_poller
+from outlook_connector.config import BusConfig, Settings
+from outlook_connector.schemas import EMAIL_RECEIVED
+from outlook_connector.service import build_poller
 
 _T0 = datetime(2026, 6, 26, 12, 0, 0, tzinfo=timezone.utc)
 
@@ -29,8 +29,9 @@ def _settings():
     return Settings(
         mailboxes=["invoices@egg-ai.com"],
         bus=BusConfig(transport="inmemory", channel="emails"),
-        azure=AzureConfig(tenant_id="t", client_id="c"),
-        client_secret="s3cret",
+        azure_tenant_id="t",
+        azure_client_id="c",
+        azure_client_secret="s3cret",
         initial_cursor=_T0,
     )
 

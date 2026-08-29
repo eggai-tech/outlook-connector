@@ -1,7 +1,7 @@
 """Boundary mapping: outlook-helper's ``OutlookMessage`` -> the owned bus model.
 
 This is the single seam that decouples the bus contract from the dependency's
-schema (per `the spec <docs/implementation.md#email-model>`). The helper makes
+schema (per `the spec <docs/DESIGN.md#email-model>`). The helper makes
 nearly every field ``Optional``; the owned :class:`~schemas.Email` makes several
 required. Mapping is therefore **defensive** — a sparse-but-valid message maps
 to a valid ``Email`` rather than raising, because a mapping that raised would
@@ -19,7 +19,7 @@ from datetime import datetime
 
 from outlook_helper import OutlookAttachment, OutlookMessage
 
-from schemas import (
+from outlook_connector.schemas import (
     EMAIL_RECEIVED,
     Attachment,
     Email,

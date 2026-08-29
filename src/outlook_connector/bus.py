@@ -7,7 +7,7 @@ A ``broker_url`` of ``None`` leaves the transport's own default in place.
 from eggai import InMemoryTransport, KafkaTransport, RedisTransport
 from eggai.transport.base import Transport
 
-from config import BusConfig
+from outlook_connector.config import BusConfig
 
 
 def build_transport(bus: BusConfig) -> Transport:

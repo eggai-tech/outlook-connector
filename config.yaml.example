@@ -1,7 +1,9 @@
 # Outlook connector — structural configuration.
 #
-# Copy to config.yaml (or point CONFIG_FILE at it) and edit. The client secret
-# is NOT set here — supply it via the `client_secret` environment variable.
+# Copy to config.yaml (or point CONFIG_FILE at it) and edit. Azure credentials
+# are NOT set here — AZURE_TENANT_ID, AZURE_CLIENT_ID and AZURE_CLIENT_SECRET
+# come from the environment, and the connector refuses to start if this file
+# carries any of them.
 
 # Mailboxes to poll (at least one).
 mailboxes:
@@ -25,7 +27,3 @@ bus:
   broker_url: localhost:19092  # bootstrap servers (kafka) / URL (redis); omit for transport default
   channel: emails
 
-# Azure app registration (the client_secret comes from the environment).
-azure:
-  tenant_id: 00000000-0000-0000-0000-000000000000
-  client_id: 00000000-0000-0000-0000-000000000000

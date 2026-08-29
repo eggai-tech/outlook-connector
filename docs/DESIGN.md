@@ -19,11 +19,13 @@ scope for this phase.
 - Python long-running service.
 - Uses `asyncio`.
 - Uses `uv` for venv and dependency management.
-- Uses the `eggai-tech/outlook-helper` private repository for all interaction
-  with the M365 Graph API. **`v0.1.0` is insufficient** (see
-  [verification](#dependency-verification)); the connector pins the tag that
-  ships the extensions listed there (`since_exclusive`, `include_headers`,
-  `html_body`, attachment-metadata `$select`).
+- Uses `outlook-helper` for all interaction with the M365 Graph API. It is
+  vendored at [libs/outlook-helper](../libs/outlook-helper) as a uv workspace
+  member; it was previously a private git dependency pinned by tag. The
+  connector needs the extensions listed under
+  [verification](#dependency-verification) (`since_exclusive`,
+  `include_headers`, `html_body`, attachment-metadata `$select`) — all present
+  in the vendored copy, none of them in the original `v0.1.0`.
 - The helper is **synchronous**; every call into it runs via
   `asyncio.to_thread(...)` so a blocking request or `Retry-After` sleep never
   stalls the event loop.
@@ -152,7 +154,7 @@ An owned Pydantic model. outlook-helper's model is mapped into it.
   flag. No attachment *content* is bridged.
 
   The extra call lives in the **poller**, not the boundary mapping: the mapping
-  ([`map_email`](../mapping.py)) stays a pure, synchronous, side-effect-free
+  ([`map_email`](../src/outlook_connector/mapping.py)) stays a pure, synchronous, side-effect-free
   function that receives the already-fetched metadata, while the poller owns all
   Graph I/O (`list_attachments` via `asyncio.to_thread`). Mapping is defensive
   about the helper's `Optional` attachment fields — a missing `name` /
@@ -163,15 +165,18 @@ An owned Pydantic model. outlook-helper's model is mapped into it.
 `pydantic-settings` (`BaseSettings`) with layering:
 
 - **Structural config — YAML file:** mailbox address list, poll interval, bus
-  connection (transport/broker URL, channel/topic), Azure `tenant_id`,
-  `client_id`.
-- **Secrets — environment variables only:** `client_secret`. **Never** written
-  to the config file.
+  connection (transport/broker URL, channel/topic).
+- **Azure connection parameters — environment variables only:**
+  `AZURE_TENANT_ID`, `AZURE_CLIENT_ID`, `AZURE_CLIENT_SECRET`. The secret and
+  the identifiers that travel with it are one credential, so they come from one
+  place. **Never** written to the config file: a config file carrying any of
+  them (or a pre-migration `azure:` block) is rejected at startup rather than
+  silently ignored.
 
 ## Startup & shutdown
 
 **Startup — fail fast.** Validate the Pydantic config (including that the
-`client_secret` env var is present) and connect to the bus eagerly. On any
+`AZURE_*` env vars are present) and connect to the bus eagerly. On any
 failure, log a clear error and **exit non-zero**; the orchestrator restarts with
 backoff. Mid-run bus loss is handled by the eggai client's reconnect plus the
 "publish fails → stop batch, retry next cycle" path — no bespoke reconnection

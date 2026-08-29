@@ -1,6 +1,6 @@
 """Service skeleton: bus lifecycle + idle loop (no email logic yet).
 
-Per `the spec <docs/implementation.md#startup--shutdown>`:
+Per `the spec <docs/DESIGN.md#startup--shutdown>`:
 
 - **Startup — fail fast.** :meth:`Service.start` connects to the bus eagerly; a
   failure propagates so the entrypoint can exit non-zero.
@@ -47,6 +47,7 @@ def _create_reply_draft(client, graph_id: str) -> str:
     )
     resp.raise_for_status()
     return resp.json()["id"]
+
 
 # A unit of per-cycle work. The skeleton uses a no-op; Piece 3 supplies polling.
 Cycle = Callable[[], Awaitable[None]]
@@ -125,15 +126,16 @@ def _build_clients(settings) -> dict:
 
     The helper client is bound to a single mailbox, so both the inbound poller
     and the outbound listener need one per mailbox; this shared seam builds them
-    from the validated Azure credentials.
+    from the Azure credentials, which are validated at startup and come from the
+    environment only.
     """
     from outlook_helper import AppOnlyConfig, ClientSecretCredential, OutlookClient
 
     credential = ClientSecretCredential(
         AppOnlyConfig(
-            client_id=settings.azure.client_id,
-            tenant_id=settings.azure.tenant_id,
-            client_secret=settings.client_secret,
+            client_id=settings.azure_client_id,
+            tenant_id=settings.azure_tenant_id,
+            client_secret=settings.azure_client_secret,
         )
     )
     return {
@@ -151,7 +153,7 @@ def build_poller(settings, transport: Transport):
     :func:`asyncio.to_thread` so a blocking request or a ``Retry-After`` sleep
     never stalls the event loop.
     """
-    from poller import Poller
+    from outlook_connector.poller import Poller
 
     clients = _build_clients(settings)
 
@@ -201,8 +203,8 @@ def build_send_listener(settings, transport: Transport):
     unknown mailbox raises rather than silently sending from a default. Like the
     poller, every (synchronous) helper call runs via :func:`asyncio.to_thread`.
     """
-    from listener import make_send_listener
-    from schemas import EmailSend
+    from outlook_connector.listener import make_send_listener
+    from outlook_connector.schemas import EmailSend
 
     clients = _build_clients(settings)
 
@@ -235,9 +237,7 @@ def build_send_listener(settings, transport: Transport):
             await asyncio.to_thread(deliver)
             return
         await asyncio.to_thread(
-            lambda: client.send_email(
-                to, email.subject, email.body, cc=cc, html=html
-            )
+            lambda: client.send_email(to, email.subject, email.body, cc=cc, html=html)
         )
 
     return make_send_listener(
@@ -264,7 +264,7 @@ async def run_service(
     poller's publishing channel) connects the shared transport. On shutdown the
     listener is drained first so no new send is accepted once we begin stopping.
     """
-    from bus import build_transport
+    from outlook_connector.bus import build_transport
 
     transport = transport or build_transport(settings.bus)
     if cycle is None:

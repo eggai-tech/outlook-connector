@@ -29,7 +29,7 @@ Two findings outside the original checklist are material and appear at the end:
 
 ## 1. Filter by `receivedDateTime` (strict `>`) — ⚠️ Missing strict operator
 
-`search_email(since=...)` ([client.py:368-390](../../../outlook-helper/outlook_helper/client.py#L368))
+`search_email(since=...)` ([client.py:368-390](../../libs/outlook-helper/outlook_helper/client.py#L368))
 builds `receivedDateTime ge <dt>` — that is `>=`, **not** the strict `>` the
 design requires. There is no `gt` option. `until` maps to `le`.
 
@@ -55,7 +55,7 @@ none). It accepts whatever representation Graph returns by default — which *is
 HTML for `body`, so in practice HTML arrives.
 
 Crucially, `OutlookMessage.body` is an `OutlookBody{content_type, content}`
-([schemas.py:25-47](../../../outlook-helper/outlook_helper/schemas.py#L25)), so
+([schemas.py:25-47](../../libs/outlook-helper/outlook_helper/schemas.py#L25)), so
 the **actual** content type is reported. The connector can map `body` →
 `body` and `body.content_type` → `body_content_type` losslessly regardless of
 which representation Graph chose.
@@ -86,7 +86,7 @@ high-level API. The only stable identifier the helper surfaces is `graph_id`
 ## 4. `conversationId` — ✅ Confirmed
 
 `OutlookMessage.conversation_id` (alias `conversationId`,
-[schemas.py:52](../../../outlook-helper/outlook_helper/schemas.py#L52)). Native
+[schemas.py:52](../../libs/outlook-helper/outlook_helper/schemas.py#L52)). Native
 Graph property, returned by default, always present. Maps directly to the bus
 model's `conversation_id`.
 
@@ -103,10 +103,10 @@ available. If precise linkage is wanted later, the escape hatch (finding B) can
 ## 6. `hasAttachments` + per-attachment metadata — ✅ Confirmed (cost caveat)
 
 - `OutlookMessage.has_attachments` — native bool, free, default `False`
-  ([schemas.py:49](../../../outlook-helper/outlook_helper/schemas.py#L49)). ✅
+  ([schemas.py:49](../../libs/outlook-helper/outlook_helper/schemas.py#L49)). ✅
 - `client.list_attachments(message_id)` returns `OutlookAttachmentMeta` with
   `name`, `content_type`, `size` (plus `id`, `is_inline`)
-  ([schemas.py:68-73](../../../outlook-helper/outlook_helper/schemas.py#L68)).
+  ([schemas.py:68-73](../../libs/outlook-helper/outlook_helper/schemas.py#L68)).
   The bus model wants `filename` — trivially `name → filename`. ✅
 - **Cost:** one extra Graph call per attachment-bearing email (`list_attachments`
   → `GraphSession.paginate(.../attachments)`), matching the design's expectation.
@@ -121,10 +121,10 @@ for the MVP; flag for later.
 
 ## 7. Retry / backoff / `Retry-After` — ✅ Confirmed
 
-`GraphSession.request` ([http.py:54-81](../../../outlook-helper/outlook_helper/http.py#L54))
+`GraphSession.request` ([http.py:54-81](../../libs/outlook-helper/outlook_helper/http.py#L54))
 retries on **429 and 503** up to `max_retries=3`, sleeping for `Retry-After`
 when present and falling back to exponential `2**attempt`
-([http.py:131-138](../../../outlook-helper/outlook_helper/http.py#L131)).
+([http.py:131-138](../../libs/outlook-helper/outlook_helper/http.py#L131)).
 
 **The connector needs no retry beyond the natural interval gap**, with two
 caveats:
@@ -135,14 +135,14 @@ caveats:
   already prescribes for "any Graph API error").
 - All non-2xx responses (after retries) surface as a single `GraphError`
   carrying `status_code`, `code`, `message`, `request_id`
-  ([exceptions.py](../../../outlook-helper/outlook_helper/exceptions.py)).
+  ([exceptions.py](../../libs/outlook-helper/outlook_helper/exceptions.py)).
 
 ---
 
 ## Additional finding A — the helper is fully synchronous ⚠️ (not in checklist, important)
 
 `GraphSession` uses `httpx.Client` (sync) and `time.sleep` for backoff
-([http.py:33-39](../../../outlook-helper/outlook_helper/http.py#L33)).
+([http.py:33-39](../../libs/outlook-helper/outlook_helper/http.py#L33)).
 `OutlookClient` exposes only sync methods. The connector runs an `asyncio` loop
 (per the spec's Foundations). **Calling `OutlookClient` directly from the event
 loop will block it** — and a throttled call's `Retry-After` sleep freezes the
@@ -154,7 +154,7 @@ entire loop for seconds.
 ## Additional finding B — escape hatch via `GraphSession` ✅ (resolves 1/2/3/5/6)
 
 `OutlookClient` owns a private `_session: GraphSession` and exposes public
-`.base_path` and `.credential` properties ([client.py:63-69](../../../outlook-helper/outlook_helper/client.py#L63)).
+`.base_path` and `.credential` properties ([client.py:63-69](../../libs/outlook-helper/outlook_helper/client.py#L63)).
 `GraphSession.paginate(path, params)` accepts arbitrary OData params and
 `request(..., headers=...)` accepts arbitrary headers. So the connector can
 construct its own `GraphSession(client.credential)` and issue a tailored query —
@@ -172,7 +172,7 @@ from the typed high-level API to raw Graph JSON for the poll query.
 ## Proposed spec amendments (decision needed before building)
 
 These touch design decisions, so I'm surfacing them rather than editing
-`docs/implementation.md` unilaterally:
+`docs/DESIGN.md` unilaterally:
 
 1. **Threading/identity (findings 3 & 5):** use the escape hatch (B) to `$select`
    `internetMessageId` + `internetMessageHeaders` and keep the design's
@@ -190,4 +190,4 @@ These touch design decisions, so I'm surfacing them rather than editing
 
 **Done-when status:** every checklist item is recorded above as confirmed or
 missing→fallback. The spec amendments are drafted but **await your call on
-decisions 1 and 2** before I edit `docs/implementation.md`.
+decisions 1 and 2** before I edit `docs/DESIGN.md`.

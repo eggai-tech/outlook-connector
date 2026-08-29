@@ -1,7 +1,8 @@
 """Tests for the layered service configuration.
 
-Structural config comes from a YAML file; the ``client_secret`` may come from
-either the YAML file or the ``client_secret`` environment variable (env wins).
+Structural config comes from a YAML file; every Azure connection parameter comes
+from the environment only (``AZURE_TENANT_ID`` / ``AZURE_CLIENT_ID`` /
+``AZURE_CLIENT_SECRET``) and is rejected outright if found in the YAML file.
 
 Runnable standalone (`python -m tests.test_config`) or under pytest.
 """
@@ -12,7 +13,7 @@ from pathlib import Path
 import pytest
 from pydantic import ValidationError
 
-from config import Settings, load_settings
+from outlook_connector.config import load_settings
 
 _VALID_YAML = """\
 mailboxes:
@@ -24,10 +25,13 @@ bus:
   transport: kafka
   broker_url: broker:19092
   channel: emails
-azure:
-  tenant_id: tenant-123
-  client_id: client-abc
 """
+
+_AZURE_ENV = {
+    "AZURE_TENANT_ID": "tenant-123",
+    "AZURE_CLIENT_ID": "client-abc",
+    "AZURE_CLIENT_SECRET": "s3cret",
+}
 
 
 def _write(tmp_path: Path, text: str) -> Path:
@@ -36,13 +40,17 @@ def _write(tmp_path: Path, text: str) -> Path:
     return cfg
 
 
-def _load(tmp_path: Path, text: str, monkeypatch, *, secret: str | None = "s3cret"):
+def _load(tmp_path: Path, text: str, monkeypatch, *, omit: str | None = None, **env):
+    """Load ``text`` as the config file with the Azure env vars set.
+
+    ``omit`` drops one Azure variable; ``env`` overrides individual values.
+    """
     cfg = _write(tmp_path, text)
     monkeypatch.setenv("CONFIG_FILE", str(cfg))
-    if secret is None:
-        monkeypatch.delenv("client_secret", raising=False)
-    else:
-        monkeypatch.setenv("client_secret", secret)
+    for key, value in {**_AZURE_ENV, **env}.items():
+        monkeypatch.setenv(key, value)
+    if omit is not None:
+        monkeypatch.delenv(omit, raising=False)
     return load_settings()
 
 
@@ -55,13 +63,15 @@ def test_loads_structural_config_from_yaml(tmp_path, monkeypatch):
     assert settings.bus.transport == "kafka"
     assert settings.bus.broker_url == "broker:19092"
     assert settings.bus.channel == "emails"
-    assert settings.azure.tenant_id == "tenant-123"
-    assert settings.azure.client_id == "client-abc"
 
 
-def test_client_secret_comes_from_env(tmp_path, monkeypatch):
-    settings = _load(tmp_path, _VALID_YAML, monkeypatch, secret="top-secret")
-    assert settings.client_secret == "top-secret"
+def test_azure_credentials_come_from_env(tmp_path, monkeypatch):
+    settings = _load(
+        tmp_path, _VALID_YAML, monkeypatch, AZURE_CLIENT_SECRET="top-secret"
+    )
+    assert settings.azure_tenant_id == "tenant-123"
+    assert settings.azure_client_id == "client-abc"
+    assert settings.azure_client_secret == "top-secret"
 
 
 def test_defaults_applied(tmp_path, monkeypatch):
@@ -70,9 +80,6 @@ mailboxes:
   - invoices@egg-ai.com
 bus:
   broker_url: broker:19092
-azure:
-  tenant_id: t
-  client_id: c
 """
     settings = _load(tmp_path, minimal, monkeypatch)
     assert settings.poll_interval_seconds == 60.0
@@ -83,18 +90,21 @@ azure:
 
 def test_missing_client_secret_fails_fast(tmp_path, monkeypatch):
     with pytest.raises(ValidationError):
-        _load(tmp_path, _VALID_YAML, monkeypatch, secret=None)
+        _load(tmp_path, _VALID_YAML, monkeypatch, omit="AZURE_CLIENT_SECRET")
+
+
+def test_missing_tenant_id_fails_fast(tmp_path, monkeypatch):
+    with pytest.raises(ValidationError):
+        _load(tmp_path, _VALID_YAML, monkeypatch, omit="AZURE_TENANT_ID")
 
 
 def test_missing_required_structural_field_fails_fast(tmp_path, monkeypatch):
-    no_azure = """\
-mailboxes:
-  - invoices@egg-ai.com
+    no_mailboxes = """\
 bus:
   broker_url: broker:19092
 """
     with pytest.raises(ValidationError):
-        _load(tmp_path, no_azure, monkeypatch)
+        _load(tmp_path, no_mailboxes, monkeypatch)
 
 
 def test_empty_mailbox_list_fails_fast(tmp_path, monkeypatch):
@@ -102,24 +112,23 @@ def test_empty_mailbox_list_fails_fast(tmp_path, monkeypatch):
 mailboxes: []
 bus:
   broker_url: broker:19092
-azure:
-  tenant_id: t
-  client_id: c
 """
     with pytest.raises(ValidationError):
         _load(tmp_path, no_mailboxes, monkeypatch)
 
 
-def test_client_secret_comes_from_yaml(tmp_path, monkeypatch):
-    with_secret = _VALID_YAML + "client_secret: from-file\n"
-    settings = _load(tmp_path, with_secret, monkeypatch, secret=None)
-    assert settings.client_secret == "from-file"
+def test_secret_in_config_file_is_rejected(tmp_path, monkeypatch):
+    """A secret in the config file is an error, never a silently ignored value."""
+    with_secret = _VALID_YAML + "azure_client_secret: from-file\n"
+    with pytest.raises(ValueError, match="must not contain azure_client_secret"):
+        _load(tmp_path, with_secret, monkeypatch)
 
 
-def test_env_secret_overrides_yaml(tmp_path, monkeypatch):
-    with_secret = _VALID_YAML + "client_secret: from-file\n"
-    settings = _load(tmp_path, with_secret, monkeypatch, secret="from-env")
-    assert settings.client_secret == "from-env"
+def test_legacy_azure_block_is_rejected(tmp_path, monkeypatch):
+    """A pre-migration ``azure:`` block fails loudly instead of looking effective."""
+    legacy = _VALID_YAML + "azure:\n  tenant_id: t\n  client_id: c\n"
+    with pytest.raises(ValueError, match="must not contain azure"):
+        _load(tmp_path, legacy, monkeypatch)
 
 
 def test_initial_cursor_defaults_to_none(tmp_path, monkeypatch):
@@ -143,7 +152,8 @@ def test_unknown_transport_fails_fast(tmp_path, monkeypatch):
 
 def test_missing_config_file_fails_fast(tmp_path, monkeypatch):
     monkeypatch.setenv("CONFIG_FILE", str(tmp_path / "does-not-exist.yaml"))
-    monkeypatch.setenv("client_secret", "s3cret")
+    for key, value in _AZURE_ENV.items():
+        monkeypatch.setenv(key, value)
     with pytest.raises(FileNotFoundError):
         load_settings()
 
@@ -182,13 +192,16 @@ if __name__ == "__main__":
                 mp.undo()
 
     _run(test_loads_structural_config_from_yaml)
-    _run(test_client_secret_comes_from_env)
+    _run(test_azure_credentials_come_from_env)
     _run(test_defaults_applied)
     _run(test_missing_client_secret_fails_fast)
+    _run(test_missing_tenant_id_fails_fast)
     _run(test_missing_required_structural_field_fails_fast)
     _run(test_empty_mailbox_list_fails_fast)
-    _run(test_client_secret_comes_from_yaml)
-    _run(test_env_secret_overrides_yaml)
+    _run(test_secret_in_config_file_is_rejected)
+    _run(test_legacy_azure_block_is_rejected)
+    _run(test_initial_cursor_defaults_to_none)
+    _run(test_initial_cursor_parses_iso_datetime)
     _run(test_unknown_transport_fails_fast)
     _run(test_missing_config_file_fails_fast)
     print("All config tests passed.")

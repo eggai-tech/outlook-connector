@@ -23,7 +23,7 @@ from collections.abc import Awaitable, Callable
 from eggai import Agent, Channel
 from eggai.transport.base import Transport
 
-from schemas import EmailSend
+from outlook_connector.schemas import EmailSend
 
 logger = logging.getLogger(__name__)
 

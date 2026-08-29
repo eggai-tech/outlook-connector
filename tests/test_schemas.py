@@ -9,7 +9,7 @@ from datetime import datetime, timezone
 import pytest
 from pydantic import ValidationError
 
-from schemas import (
+from outlook_connector.schemas import (
     EMAIL_RECEIVED,
     Attachment,
     Email,

@@ -15,8 +15,8 @@ from eggai import Channel, InMemoryTransport
 
 from datetime import datetime, timezone
 
-from listener import make_send_listener
-from schemas import (
+from outlook_connector.listener import make_send_listener
+from outlook_connector.schemas import (
     EMAIL_RECEIVED,
     Email,
     EmailAddress,

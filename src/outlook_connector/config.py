@@ -1,16 +1,13 @@
 """Layered service configuration.
 
-Per `the spec <docs/implementation.md#configuration>`:
+Per `the spec <docs/DESIGN.md#configuration>`:
 
 - **Structural config** lives in a YAML file (path from ``CONFIG_FILE``,
-  default ``config.yaml``): mailbox list, poll interval, bus connection, Azure
-  ``tenant_id``/``client_id``, log level.
-- **The ``client_secret``** may come from either the YAML file or the
-  ``client_secret`` environment variable; the environment takes precedence so a
-  deployment can override a file-supplied secret.
+  default ``config.yaml``): mailbox list, poll interval, bus connection, log level.
 
-Validation is strict so startup can *fail fast*: a missing secret, a missing
-structural field, an empty mailbox list, or an unknown transport all raise.
+- **No secrets in the config file. They can only come from env.**
+
+Validation is strict so startup can fail quickly.
 """
 
 import os
@@ -28,6 +25,14 @@ from pydantic_settings import (
 CONFIG_FILE_ENV = "CONFIG_FILE"
 DEFAULT_CONFIG_FILE = "config.yaml"
 
+# these keys can only come from the environment
+# stop if any of them is present in the config fail
+_ENV_ONLY_KEYS = [
+    "azure_tenant_id",
+    "azure_client_id",
+    "azure_client_secret",
+]
+
 
 class BusConfig(BaseModel):
     """EggAI bus connection settings."""
@@ -38,19 +43,13 @@ class BusConfig(BaseModel):
     channel: str = "emails"
 
 
-class AzureConfig(BaseModel):
-    """Azure app-registration identifiers (the secret is supplied via env)."""
-
-    tenant_id: str
-    client_id: str
-
-
 class Settings(BaseSettings):
     """The connector's validated configuration."""
 
     model_config = SettingsConfigDict(
+        env_file=".env",
         env_nested_delimiter="__",
-        extra="forbid",
+        extra="ignore",
     )
 
     mailboxes: list[str] = Field(min_length=1)
@@ -61,11 +60,11 @@ class Settings(BaseSettings):
     initial_cursor: datetime | None = None
     log_level: str = "INFO"
     bus: BusConfig = Field(default_factory=BusConfig)
-    azure: AzureConfig
 
-    # Secret — from the YAML file or the client_secret environment variable
-    # (environment wins).
-    client_secret: str
+    # Not allowed in config file. Env only.
+    azure_tenant_id: str
+    azure_client_id: str
+    azure_client_secret: str
 
     @classmethod
     def settings_customise_sources(
@@ -76,11 +75,26 @@ class Settings(BaseSettings):
         dotenv_settings: PydanticBaseSettingsSource,
         file_secret_settings: PydanticBaseSettingsSource,
     ) -> tuple[PydanticBaseSettingsSource, ...]:
+        """
+        Configure where we get settings from: environment and config.yaml
+        """
         yaml_file = os.getenv(CONFIG_FILE_ENV, DEFAULT_CONFIG_FILE)
         yaml_source = YamlConfigSettingsSource(settings_cls, yaml_file=yaml_file)
-        # Precedence (first wins): explicit init args, then environment (which
-        # may carry the secret), then the YAML file.
-        return (init_settings, env_settings, yaml_source)
+        return (init_settings, env_settings, dotenv_settings, yaml_source)
+
+
+def _reject_env_only_keys(yaml_file: str) -> None:
+    """Fail loudly if the config file carries Azure credentials.
+
+    Without this the keys would be *silently* ignored (environment beats the
+    file), so a stale ``azure:`` block would look like it was still in effect.
+    """
+    document = YamlConfigSettingsSource(Settings, yaml_file=yaml_file)()
+    present = [key for key in _ENV_ONLY_KEYS if key in document]
+    if present:
+        raise ValueError(
+            f"{yaml_file} is not allowed to contain {', '.join(present)}. Env only."
+        )
 
 
 def load_settings() -> Settings:
@@ -88,4 +102,5 @@ def load_settings() -> Settings:
     yaml_file = os.getenv(CONFIG_FILE_ENV, DEFAULT_CONFIG_FILE)
     if not os.path.exists(yaml_file):
         raise FileNotFoundError(f"Config file not found: {yaml_file}")
+    _reject_env_only_keys(yaml_file)
     return Settings()

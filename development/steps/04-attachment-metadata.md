@@ -12,7 +12,7 @@ Attachment metadata costs an **extra Graph call per attachment-bearing email**
 
 ## Scope
 
-Per [the spec](../docs/implementation.md#email-model):
+Per [the spec](../../docs/DESIGN.md#email-model):
 
 - For each fetched message where `has_attachments` is true, make the extra Graph
   call (via `outlook-helper`) to fetch per-attachment metadata.

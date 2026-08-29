@@ -24,7 +24,7 @@ from outlook_helper import (
     OutlookMessage,
 )
 
-from poller import Poller
+from outlook_connector.poller import Poller
 
 _T0 = datetime(2026, 6, 26, 12, 0, 0, tzinfo=timezone.utc)
 _NOW = datetime(2026, 6, 26, 12, 5, 0, tzinfo=timezone.utc)
@@ -338,13 +338,14 @@ def test_messages_without_received_at_are_skipped():
 
 
 def _settings(initial_cursor=None):
-    from config import AzureConfig, BusConfig, Settings
+    from outlook_connector.config import BusConfig, Settings
 
     return Settings(
         mailboxes=["a@egg-ai.com", "b@egg-ai.com"],
         bus=BusConfig(transport="inmemory"),
-        azure=AzureConfig(tenant_id="t", client_id="c"),
-        client_secret="s3cret",
+        azure_tenant_id="t",
+        azure_client_id="c",
+        azure_client_secret="s3cret",
         initial_cursor=initial_cursor,
     )
 
@@ -352,7 +353,7 @@ def _settings(initial_cursor=None):
 def test_build_poller_seeds_cursors_from_initial_cursor():
     from eggai import InMemoryTransport
 
-    from service import build_poller
+    from outlook_connector.service import build_poller
 
     p = build_poller(_settings(initial_cursor=_T0), InMemoryTransport())
     assert p.mailboxes == ["a@egg-ai.com", "b@egg-ai.com"]
@@ -362,7 +363,7 @@ def test_build_poller_seeds_cursors_from_initial_cursor():
 def test_build_poller_wires_attachment_fetcher():
     from eggai import InMemoryTransport
 
-    from service import build_poller
+    from outlook_connector.service import build_poller
 
     p = build_poller(_settings(initial_cursor=_T0), InMemoryTransport())
     assert p._fetch_attachments is not None  # enrichment path is wired
@@ -371,7 +372,7 @@ def test_build_poller_wires_attachment_fetcher():
 def test_build_poller_defaults_cursors_to_now():
     from eggai import InMemoryTransport
 
-    from service import build_poller
+    from outlook_connector.service import build_poller
 
     before = datetime.now(timezone.utc)
     p = build_poller(_settings(), InMemoryTransport())
