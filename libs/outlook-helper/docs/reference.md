@@ -228,13 +228,30 @@ folder id (see §7).
 
 ### 5.1 Reading
 
-#### `get_email(message_id: str) -> OutlookMessage`
-Fetch a single message by id.
+#### `get_email(message_id: str, *, include_mime: bool = False) -> OutlookMessage`
+Fetch a single message by id. Ids returned by this library are Graph *immutable*
+ids, so one stored earlier still resolves after the message has been filed into
+another folder (see §12).
 
 ```python
 msg = client.get_email("AAMk...")
 print(msg.subject, msg.from_.address, msg.body.content)
 ```
+
+`include_mime=True` additionally fills `msg.mime_content` with the message's
+**MIME content** — the whole `.eml` as one string: headers, both body parts and
+every attachment, exactly as the message arrived. Graph serves it from a
+separate `$value` endpoint, so it costs a second request; leave it off unless
+you need the raw message.
+
+```python
+msg = client.get_email("AAMk...", include_mime=True)
+Path("mail.eml").write_text(msg.mime_content, newline="")  # keep CRLF intact
+```
+
+Attachments come through base64-encoded inside the MIME, so a message with big
+attachments produces a correspondingly big string — use `download_attachment`
+when you only want the files.
 
 #### `list_messages(folder="inbox", *, top=None) -> Iterator[OutlookMessage]`
 List messages in a folder, **newest first** (`receivedDateTime desc`).
@@ -373,7 +390,7 @@ new folder is resolvable by name immediately.
 
 #### `move_email(message_id, dest_folder) -> OutlookMessage`
 Move a message to another folder. `dest_folder` is a folder reference. Returns
-the moved message (note: Graph assigns it a **new id** in the destination).
+the moved message, whose `.id` is unchanged (ids are immutable — see §12).
 
 #### `delete_email(message_id, *, permanent=False) -> None`
 Delete a message. By default this is a **soft delete** (moves to Deleted Items).
@@ -468,7 +485,7 @@ flattened to `EmailAddress`. Unknown Graph fields are ignored.
 ### `OutlookMessage`
 | Field              | Type                  | Notes                                            |
 |--------------------|-----------------------|--------------------------------------------------|
-| `id`               | `str`                 | Message id (changes when moved).                 |
+| `id`               | `str`                 | Immutable message id; stable across moves.       |
 | `subject`          | `str \| None`         |                                                  |
 | `from_`            | `EmailAddress \| None`| Sender. **Note the trailing underscore.**        |
 | `to`               | `list[EmailAddress]`  | Defaults to `[]`.                                |
@@ -484,6 +501,7 @@ flattened to `EmailAddress`. Unknown Graph fields are ignored.
 | `web_link`         | `str \| None`         | Open-in-Outlook URL.                             |
 | `conversation_id`  | `str \| None`         |                                                  |
 | `parent_folder_id` | `str \| None`         |                                                  |
+| `mime_content`     | `str \| None`         | The whole `.eml`; `None` unless `include_mime=True`. |
 
 ### `EmailAddress`
 | Field     | Type           |
@@ -603,7 +621,14 @@ and `upload_chunk(url, data, content_range)`.
   `/me`; constructing the client without a mailbox raises `ValueError`.
 - **HTML vs text.** `html=False` is the default everywhere. For HTML bodies pass
   `html=True` — including on `update_draft`, or the body downgrades to plain text.
-- **Move changes the id.** After `move_email`, use the returned message's `.id`.
+- **Ids are immutable.** Every request sends `Prefer: IdType="ImmutableId"`, so
+  `msg.id` is Graph's immutable id: it survives `move_email` and any folder move
+  done outside the library (a user filing the mail, an inbox rule), which makes
+  it safe to persist as the message's unique key. Ids obtained this way can be
+  passed straight back to `get_email` / `reply` / `move_email` / `delete_email`.
+  If a tenant does not support immutable ids Graph silently ignores the header
+  and returns folder-scoped ids, which do change on move; the response's
+  `Preference-Applied` header tells you which you got.
 - **`send_email` / `reply` / `send_draft` / `discard_draft` / `delete_email` return `None`.**
   Only `get_email` / `create_draft` / `update_draft` / `move_email` /
   `create_folder` return models; `list_*` return lists or iterators.
@@ -677,6 +702,7 @@ the env vars `OUTLOOK_CLIENT_ID`, `OUTLOOK_TENANT_ID`, `OUTLOOK_MAILBOX`,
 ```bash
 outlook-helper --client-id <id> login
 outlook-helper --client-id <id> list --folder inbox --top 20
+outlook-helper --client-id <id> get <message-id> --eml > mail.eml
 outlook-helper --client-id <id> search --subject-contains invoice --has-attachments
 outlook-helper --client-id <id> send --to a@x.com --subject Hi --body "Hello" --attach ./f.pdf
 outlook-helper --client-id <id> reply <message-id> --body "Thanks" --reply-all
@@ -698,7 +724,7 @@ For app-only auth add `--auth app-only --tenant-id <t> --client-secret <s>`. Run
 
 | Verb | Signature (return) |
 |------|--------------------|
-| Read one | `get_email(message_id) -> OutlookMessage` |
+| Read one | `get_email(message_id, *, include_mime=False) -> OutlookMessage` |
 | List | `list_messages(folder="inbox", *, top=None) -> Iterator[OutlookMessage]` |
 | Search | `search_email(*, sender, subject_contains, since, until, unread, has_attachments, folder, top) -> Iterator[OutlookMessage]` |
 | List attachments | `list_attachments(message_id) -> list[OutlookAttachmentMeta]` |

@@ -89,17 +89,26 @@ class OutlookClient:
         *,
         include_headers: bool = False,
         html_body: bool = False,
+        include_mime: bool = False,
     ) -> OutlookMessage:
+        """Fetch one message by id.
+
+        ``include_mime`` additionally fetches the message's MIME content -- the
+        whole ``.eml``, headers and attachments included -- into
+        :attr:`~outlook_helper.schemas.OutlookMessage.mime_content`. Graph only
+        serves it from a separate ``$value`` endpoint, so it costs a second
+        request.
+        """
         params: dict[str, Any] = {}
         if include_headers:
             params["$select"] = _MESSAGE_SELECT
         headers = dict(_PREFER_HTML) if html_body else None
-        data = self._session.get_json(
-            f"{self._base_path}/messages/{message_id}",
-            params or None,
-            headers=headers,
-        )
-        return OutlookMessage.model_validate(data)
+        path = f"{self._base_path}/messages/{message_id}"
+        data = self._session.get_json(path, params or None, headers=headers)
+        message = OutlookMessage.model_validate(data)
+        if include_mime:
+            message.mime_content = self._session.get_text(f"{path}/$value")
+        return message
 
     def list_messages(
         self,

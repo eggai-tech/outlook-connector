@@ -41,6 +41,14 @@ def _unwrap_email_address(value: Any) -> Any:
 
 
 class OutlookMessage(GraphModel):
+    """A mail message.
+
+    ``id`` is Graph's *immutable* id: :class:`~outlook_helper.http.GraphSession`
+    sends ``Prefer: IdType="ImmutableId"`` on every request, so the id stays the
+    same when the message moves between folders and is safe to persist as the
+    message's unique key.
+    """
+
     id: str
     subject: str | None = None
     from_: EmailAddress | None = Field(default=None, alias="from")
@@ -61,6 +69,10 @@ class OutlookMessage(GraphModel):
     internet_message_headers: list[InternetMessageHeader] = Field(
         default_factory=list, alias="internetMessageHeaders"
     )
+    #: The whole message in MIME format (a ``.eml``): headers, bodies and
+    #: attachments in one string. Graph never returns it alongside the message
+    #: JSON, so it is ``None`` unless it was asked for with ``include_mime``.
+    mime_content: str | None = None
 
     @property
     def in_reply_to(self) -> str | None:

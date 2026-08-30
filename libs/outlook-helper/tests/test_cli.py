@@ -9,9 +9,13 @@ class FakeClient:
     def __init__(self):
         self.calls = []
 
-    def get_email(self, message_id):
-        self.calls.append(("get_email", message_id))
-        return OutlookMessage(id=message_id, subject="Hello")
+    def get_email(self, message_id, *, include_mime=False):
+        self.calls.append(("get_email", message_id, include_mime))
+        return OutlookMessage(
+            id=message_id,
+            subject="Hello",
+            mime_content="Subject: Hello\r\n\r\nBody\r\n" if include_mime else None,
+        )
 
     def list_messages(self, folder="inbox", *, top=None):
         self.calls.append(("list_messages", folder, top))
@@ -97,7 +101,17 @@ def test_get_command_prints_subject():
     result = run(["get", "M1"], fake)
     assert result.exit_code == 0
     assert "Hello" in result.output
-    assert ("get_email", "M1") in fake.calls
+    assert ("get_email", "M1", False) in fake.calls
+
+
+def test_get_command_with_eml_prints_the_raw_mime():
+    fake = FakeClient()
+    result = run(["get", "M1", "--eml"], fake)
+    assert result.exit_code == 0
+    assert ("get_email", "M1", True) in fake.calls
+    # Byte-exact: CRLF line endings are part of the MIME format, and nothing
+    # extra may be appended, so `... --eml > mail.eml` yields a valid .eml.
+    assert result.stdout_bytes == b"Subject: Hello\r\n\r\nBody\r\n"
 
 
 def test_list_command_prints_messages():

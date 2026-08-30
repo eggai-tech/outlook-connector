@@ -4,7 +4,7 @@ A Python library for working with M365 email through the Microsoft Graph API.
 
 Functionality:
 - authenticate users (delegated device-code flow, or app-only client credentials)
-- get email
+- get email (optionally with the full message in MIME format, i.e. a `.eml`)
 - search email (precise filters: subject, date range, sender, attachments)
 - send email (with attachments) — new email or reply
 - create and send drafts
@@ -58,10 +58,15 @@ credential = DeviceCodeCredential(
 )
 client = OutlookClient(credential)  # defaults to the signed-in user's mailbox
 
-# Read
+# Read — msg.id is Graph's immutable id, stable across folder moves,
+# so it is safe to persist as a message's unique key.
 msg = client.get_email("<message-id>")
+
+# ...or with the whole message in MIME format (a .eml) on msg.mime_content
+raw = client.get_email("<message-id>", include_mime=True).mime_content
+
 for m in client.list_messages(folder="inbox", top=20):
-    print(m.subject, m.from_.address)
+    print(m.id, m.subject, m.from_.address)
 
 # Precise search: subject contains "ABC", received after a date, with attachments
 from datetime import datetime
@@ -120,8 +125,8 @@ outlook-helper --client-id <id> move <message-id> Archive
 outlook-helper --client-id <id> delete <message-id> --permanent
 ```
 
-Config can also come from environment variables: `OUTLOOK_CLIENT_ID`,
-`OUTLOOK_TENANT_ID`, `OUTLOOK_MAILBOX`, `OUTLOOK_CLIENT_SECRET`,
+Config can also come from environment variables: `AZURE_CLIENT_ID`,
+`AZURE_TENANT_ID`, `OUTLOOK_MAILBOX`, `AZURE_CLIENT_SECRET`,
 `OUTLOOK_CACHE_PATH`. Run `outlook-helper --help` for all commands.
 
 ## Development

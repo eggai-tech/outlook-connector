@@ -1,9 +1,9 @@
 """The single HTTP seam to Microsoft Graph.
 
 ``GraphSession`` is the only place that talks to Graph. It injects the bearer
-token, maps non-2xx responses to :class:`GraphError`, retries throttling/5xx
-responses honouring ``Retry-After``, lazily follows pagination links, and
-streams large downloads to disk.
+token, asks Graph for immutable ids, maps non-2xx responses to
+:class:`GraphError`, retries throttling/5xx responses honouring ``Retry-After``,
+lazily follows pagination links, and streams large downloads to disk.
 """
 
 from __future__ import annotations
@@ -20,6 +20,13 @@ from outlook_helper.exceptions import GraphError
 DEFAULT_BASE_URL = "https://graph.microsoft.com/v1.0"
 _RETRY_STATUS = frozenset({429, 503})
 _REQUEST_ID_HEADERS = ("request-id", "client-request-id", "x-ms-request-id")
+
+#: Asks Graph to return immutable ids. Without it, the ``id`` of an Outlook item
+#: encodes its current folder, so it changes whenever the item moves (a user
+#: filing a mail, a rule firing) and is useless as a durable key. With it, ``id``
+#: survives moves. Ids handed back this way work in later request URLs whether or
+#: not the header is set on those requests, so we send it on every request.
+IMMUTABLE_ID_PREFERENCE = 'IdType="ImmutableId"'
 
 
 class GraphSession:
@@ -49,6 +56,7 @@ class GraphSession:
         headers = {"Authorization": f"Bearer {self._credential.get_token()}"}
         if extra:
             headers.update(extra)
+        headers["Prefer"] = _prefer_immutable_ids(_pop_prefer(headers))
         return headers
 
     def request(
@@ -84,6 +92,12 @@ class GraphSession:
         self, path: str, params: dict | None = None, *, headers: dict | None = None
     ) -> dict:
         return self.request("GET", path, params=params, headers=headers).json()
+
+    def get_text(
+        self, path: str, params: dict | None = None, *, headers: dict | None = None
+    ) -> str:
+        """Return the response body for ``path`` as text (e.g. ``$value`` MIME)."""
+        return self.request("GET", path, params=params, headers=headers).text
 
     def paginate(
         self, path: str, params: dict | None = None, *, headers: dict | None = None
@@ -130,6 +144,25 @@ class GraphSession:
 
     def close(self) -> None:
         self._client.close()
+
+
+def _pop_prefer(headers: dict) -> str | None:
+    """Remove and return any caller-supplied ``Prefer`` value (whatever casing)."""
+    for key in [k for k in headers if k.lower() == "prefer"]:
+        return headers.pop(key)
+    return None
+
+
+def _prefer_immutable_ids(existing: str | None) -> str:
+    """Prepend the immutable-id preference to ``existing``, a Prefer value list."""
+    if not existing:
+        return IMMUTABLE_ID_PREFERENCE
+    others = [
+        p.strip()
+        for p in existing.split(",")
+        if p.strip() and p.strip() != IMMUTABLE_ID_PREFERENCE
+    ]
+    return ", ".join([IMMUTABLE_ID_PREFERENCE, *others])
 
 
 def _retry_after_seconds(response: httpx.Response, attempt: int) -> float:

@@ -3,7 +3,7 @@ import pytest
 import respx
 
 from outlook_helper.exceptions import GraphError
-from outlook_helper.http import GraphSession
+from outlook_helper.http import IMMUTABLE_ID_PREFERENCE, GraphSession
 
 BASE = "https://graph.microsoft.com/v1.0"
 
@@ -115,6 +115,32 @@ def test_paginate_follows_next_link_lazily():
 
 
 @respx.mock
+def test_get_text_returns_the_decoded_body():
+    respx.get(f"{BASE}/me/messages/1/$value").mock(
+        return_value=httpx.Response(
+            200,
+            headers={"Content-Type": "text/plain"},
+            text="Subject: Hi\r\n\r\nBody\r\n",
+        )
+    )
+    session, _ = make_session()
+    assert session.get_text("/me/messages/1/$value") == "Subject: Hi\r\n\r\nBody\r\n"
+
+
+@respx.mock
+def test_get_text_raises_graph_error_on_failure():
+    respx.get(f"{BASE}/me/messages/missing/$value").mock(
+        return_value=httpx.Response(
+            404, json={"error": {"code": "ErrorItemNotFound", "message": "nope"}}
+        )
+    )
+    session, _ = make_session()
+    with pytest.raises(GraphError) as exc:
+        session.get_text("/me/messages/missing/$value")
+    assert exc.value.code == "ErrorItemNotFound"
+
+
+@respx.mock
 def test_get_json_forwards_extra_headers():
     route = respx.get(f"{BASE}/me/messages").mock(
         return_value=httpx.Response(200, json={"value": []})
@@ -123,7 +149,7 @@ def test_get_json_forwards_extra_headers():
     session.get_json("/me/messages", headers={"Prefer": 'outlook.body-content-type="html"'})
     assert (
         route.calls.last.request.headers["Prefer"]
-        == 'outlook.body-content-type="html"'
+        == f'{IMMUTABLE_ID_PREFERENCE}, outlook.body-content-type="html"'
     )
 
 
@@ -143,8 +169,9 @@ def test_paginate_forwards_headers_on_every_page():
     )
     session, _ = make_session()
     list(session.paginate("/me/messages", headers={"Prefer": "pref"}))
-    assert page1.calls.last.request.headers["Prefer"] == "pref"
-    assert page2.calls.last.request.headers["Prefer"] == "pref"
+    expected = f"{IMMUTABLE_ID_PREFERENCE}, pref"
+    assert page1.calls.last.request.headers["Prefer"] == expected
+    assert page2.calls.last.request.headers["Prefer"] == expected
 
 
 @respx.mock
@@ -183,3 +210,67 @@ def test_download_streams_to_file(tmp_path):
     result = session.download("/me/messages/1/attachments/a/$value", dest)
     assert result == dest
     assert dest.read_bytes() == b"file-bytes-here"
+
+
+@respx.mock
+def test_requests_prefer_immutable_ids():
+    route = respx.get(f"{BASE}/me/messages/1").mock(
+        return_value=httpx.Response(200, json={"id": "AAkALg"})
+    )
+    session, _ = make_session()
+    session.get_json("/me/messages/1")
+    assert route.calls.last.request.headers["Prefer"] == IMMUTABLE_ID_PREFERENCE
+
+
+@respx.mock
+def test_immutable_id_preference_merges_with_caller_prefer():
+    route = respx.get(f"{BASE}/me/messages").mock(
+        return_value=httpx.Response(200, json={"value": []})
+    )
+    session, _ = make_session()
+    session.get_json(
+        "/me/messages", headers={"Prefer": 'outlook.body-content-type="html"'}
+    )
+    assert route.calls.last.request.headers["Prefer"] == (
+        f'{IMMUTABLE_ID_PREFERENCE}, outlook.body-content-type="html"'
+    )
+
+
+@respx.mock
+def test_immutable_id_preference_not_duplicated_when_caller_sends_it():
+    route = respx.get(f"{BASE}/me/messages").mock(
+        return_value=httpx.Response(200, json={"value": []})
+    )
+    session, _ = make_session()
+    session.get_json("/me/messages", headers={"prefer": IMMUTABLE_ID_PREFERENCE})
+    assert route.calls.last.request.headers["Prefer"] == IMMUTABLE_ID_PREFERENCE
+
+
+@respx.mock
+def test_paginate_prefers_immutable_ids_on_every_page():
+    page2 = respx.get(f"{BASE}/me/messages", params={"$skip": "1"}).mock(
+        return_value=httpx.Response(200, json={"value": [{"id": "2"}]})
+    )
+    page1 = respx.get(f"{BASE}/me/messages").mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "value": [{"id": "1"}],
+                "@odata.nextLink": f"{BASE}/me/messages?$skip=1",
+            },
+        )
+    )
+    session, _ = make_session()
+    list(session.paginate("/me/messages"))
+    assert page1.calls.last.request.headers["Prefer"] == IMMUTABLE_ID_PREFERENCE
+    assert page2.calls.last.request.headers["Prefer"] == IMMUTABLE_ID_PREFERENCE
+
+
+@respx.mock
+def test_download_prefers_immutable_ids(tmp_path):
+    route = respx.get(f"{BASE}/me/messages/1/$value").mock(
+        return_value=httpx.Response(200, content=b"bytes")
+    )
+    session, _ = make_session()
+    session.download("/me/messages/1/$value", tmp_path / "out.bin")
+    assert route.calls.last.request.headers["Prefer"] == IMMUTABLE_ID_PREFERENCE

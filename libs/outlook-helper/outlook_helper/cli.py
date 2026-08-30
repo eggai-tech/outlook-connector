@@ -20,7 +20,7 @@ from outlook_helper.schemas import OutlookMessage
 
 def build_client(params: dict[str, Any]) -> OutlookClient:
     if not params.get("client_id"):
-        raise click.UsageError("--client-id is required (or set OUTLOOK_CLIENT_ID)")
+        raise click.UsageError("--client-id is required (or set AZURE_CLIENT_ID)")
     if params["auth"] == "app-only":
         if not params.get("client_secret"):
             raise click.UsageError("app-only auth requires --client-secret")
@@ -58,16 +58,16 @@ def _format_message(msg: OutlookMessage) -> str:
 
 
 @click.group()
-@click.option("--client-id", envvar="OUTLOOK_CLIENT_ID")
-@click.option("--tenant-id", envvar="OUTLOOK_TENANT_ID")
-@click.option("--mailbox", envvar="OUTLOOK_MAILBOX")
+@click.option("--client-id", envvar="AZURE_CLIENT_ID", show_envvar=True)
+@click.option("--tenant-id", envvar="AZURE_TENANT_ID", show_envvar=True)
+@click.option("--mailbox", envvar="OUTLOOK_MAILBOX", show_envvar=True)
 @click.option(
     "--auth",
     type=click.Choice(["delegated", "app-only"]),
-    default="delegated",
+    default="app-only",
     show_default=True,
 )
-@click.option("--client-secret", envvar="OUTLOOK_CLIENT_SECRET")
+@click.option("--client-secret", envvar="AZURE_CLIENT_SECRET", show_envvar=True)
 @click.option(
     "--cache-path",
     envvar="OUTLOOK_CACHE_PATH",
@@ -97,10 +97,18 @@ def login(ctx):
 
 @main.command()
 @click.argument("message_id")
+@click.option(
+    "--eml",
+    is_flag=True,
+    help="Print the raw message in MIME format (.eml) instead of a summary.",
+)
 @click.pass_context
-def get(ctx, message_id):
+def get(ctx, message_id, eml):
     """Fetch a single message by id."""
-    msg = get_client(ctx).get_email(message_id)
+    msg = get_client(ctx).get_email(message_id, include_mime=eml)
+    if eml:
+        click.echo(msg.mime_content or "", nl=False)
+        return
     click.echo(_format_message(msg))
     if msg.body and msg.body.content:
         click.echo()

@@ -5,7 +5,7 @@ import pytest
 import respx
 
 from outlook_helper.client import OutlookClient, _MESSAGE_SELECT, _fmt_dt
-from outlook_helper.http import GraphSession
+from outlook_helper.http import IMMUTABLE_ID_PREFERENCE, GraphSession
 
 BASE = "https://graph.microsoft.com/v1.0"
 
@@ -156,7 +156,7 @@ def test_search_email_html_body_sets_prefer_header():
     list(make_client().search_email(html_body=True))
     assert (
         route.calls.last.request.headers["Prefer"]
-        == 'outlook.body-content-type="html"'
+        == f'{IMMUTABLE_ID_PREFERENCE}, outlook.body-content-type="html"'
     )
 
 
@@ -167,7 +167,8 @@ def test_search_email_without_options_has_no_select_or_prefer():
     )
     list(make_client().search_email())
     assert "$select" not in route.calls.last.request.url.params
-    assert "Prefer" not in route.calls.last.request.headers
+    # The only preference is the always-on immutable-id request.
+    assert route.calls.last.request.headers["Prefer"] == IMMUTABLE_ID_PREFERENCE
 
 
 @respx.mock
@@ -178,7 +179,38 @@ def test_get_email_supports_headers_and_html_body(load_fixture):
     make_client().get_email("AAMkAGI1", include_headers=True, html_body=True)
     req = route.calls.last.request
     assert req.url.params["$select"] == _MESSAGE_SELECT
-    assert req.headers["Prefer"] == 'outlook.body-content-type="html"'
+    assert req.headers["Prefer"] == (
+        f'{IMMUTABLE_ID_PREFERENCE}, outlook.body-content-type="html"'
+    )
+
+
+@respx.mock
+def test_get_email_with_include_mime_fetches_the_raw_mime(load_fixture):
+    respx.get(f"{BASE}/me/messages/AAMkAGI1").mock(
+        return_value=httpx.Response(200, json=load_fixture("message.json"))
+    )
+    route = respx.get(f"{BASE}/me/messages/AAMkAGI1/$value").mock(
+        return_value=httpx.Response(
+            200,
+            headers={"Content-Type": "text/plain"},
+            text="Subject: Quarterly report\r\n\r\nBody text\r\n",
+        )
+    )
+    msg = make_client().get_email("AAMkAGI1", include_mime=True)
+    assert msg.subject == "Quarterly report"
+    assert msg.mime_content == "Subject: Quarterly report\r\n\r\nBody text\r\n"
+    assert route.calls.last.request.headers["Prefer"] == IMMUTABLE_ID_PREFERENCE
+
+
+@respx.mock
+def test_get_email_without_include_mime_leaves_mime_content_unset(load_fixture):
+    respx.get(f"{BASE}/me/messages/AAMkAGI1").mock(
+        return_value=httpx.Response(200, json=load_fixture("message.json"))
+    )
+    value_route = respx.get(f"{BASE}/me/messages/AAMkAGI1/$value")
+    msg = make_client().get_email("AAMkAGI1")
+    assert msg.mime_content is None
+    assert not value_route.called
 
 
 @respx.mock
@@ -189,7 +221,9 @@ def test_list_messages_supports_headers_and_html_body():
     list(make_client().list_messages(include_headers=True, html_body=True))
     req = route.calls.last.request
     assert req.url.params["$select"] == _MESSAGE_SELECT
-    assert req.headers["Prefer"] == 'outlook.body-content-type="html"'
+    assert req.headers["Prefer"] == (
+        f'{IMMUTABLE_ID_PREFERENCE}, outlook.body-content-type="html"'
+    )
 
 
 @respx.mock
@@ -314,3 +348,39 @@ def test_get_attachments_follows_pagination():
     )
     atts = make_client().get_attachments("M1")
     assert [a.id for a in atts] == ["a1", "a2"]
+
+
+@respx.mock
+def test_get_email_returns_the_immutable_id(load_fixture):
+    """With ``Prefer: IdType="ImmutableId"`` Graph puts the immutable id in ``id``."""
+    route = respx.get(f"{BASE}/me/messages/AAkALgAAAAA").mock(
+        return_value=httpx.Response(200, json={"id": "AAkALgAAAAA", "subject": "hi"})
+    )
+    msg = make_client().get_email("AAkALgAAAAA")
+    assert route.calls.last.request.headers["Prefer"] == IMMUTABLE_ID_PREFERENCE
+    assert msg.id == "AAkALgAAAAA"
+
+
+@respx.mock
+def test_list_messages_requests_immutable_ids():
+    route = respx.get(f"{BASE}/me/mailFolders/inbox/messages").mock(
+        return_value=httpx.Response(200, json={"value": [{"id": "AAkALg"}]})
+    )
+    assert [m.id for m in make_client().list_messages()] == ["AAkALg"]
+    assert route.calls.last.request.headers["Prefer"] == IMMUTABLE_ID_PREFERENCE
+
+
+@respx.mock
+def test_move_email_keeps_the_immutable_id():
+    """The point of immutable ids: a move no longer changes ``.id``."""
+    route = respx.post(f"{BASE}/me/messages/AAkALg/move").mock(
+        return_value=httpx.Response(201, json={"id": "AAkALg", "subject": "hi"})
+    )
+    respx.get(f"{BASE}/me/mailFolders").mock(
+        return_value=httpx.Response(
+            200, json={"value": [{"id": "f1", "displayName": "Processed"}]}
+        )
+    )
+    moved = make_client().move_email("AAkALg", "Processed")
+    assert route.calls.last.request.headers["Prefer"] == IMMUTABLE_ID_PREFERENCE
+    assert moved.id == "AAkALg"
