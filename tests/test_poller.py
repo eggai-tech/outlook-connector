@@ -25,6 +25,7 @@ from outlook_helper import (
 )
 
 from outlook_connector.poller import Poller
+from outlook_connector.storage import StorageError, init_backends
 
 _T0 = datetime(2026, 6, 26, 12, 0, 0, tzinfo=timezone.utc)
 _NOW = datetime(2026, 6, 26, 12, 5, 0, tzinfo=timezone.utc)
@@ -58,7 +59,7 @@ class _Recorder:
         self.published.append(message)
 
 
-def _poller(*, fetch, publish, cursors, fetch_attachments=None):
+def _poller(*, fetch, publish, cursors, fetch_attachments=None, save=None):
     return Poller(
         mailboxes=list(cursors),
         fetch=fetch,
@@ -66,6 +67,7 @@ def _poller(*, fetch, publish, cursors, fetch_attachments=None):
         cursors=cursors,
         now=lambda: _NOW,
         fetch_attachments=fetch_attachments,
+        save=save,
     )
 
 
@@ -258,6 +260,147 @@ def test_publish_failure_mid_batch_stops_and_leaves_cursor_at_last_success():
     asyncio.run(go())
 
 
+# --- storage: saved before the bus, a failed save never publishes ----------
+
+
+def test_email_is_saved_before_it_is_published():
+    async def go():
+        order = []
+        rec = _Recorder()
+
+        async def save(email):
+            order.append(("save", email.message_id))
+            return {"memory": email.message_id}
+
+        async def publish(message):
+            order.append(("publish", message.data.email.message_id))
+            await rec.publish(message)
+
+        cursors = {"a@egg-ai.com": _T0}
+        p = _poller(
+            fetch=_static_fetch({"a@egg-ai.com": [_msg(10)]}),
+            publish=publish,
+            cursors=cursors,
+            save=save,
+        )
+        await p.run_cycle()
+
+        assert order == [
+            ("save", "<m10@example.com>"),
+            ("publish", "<m10@example.com>"),
+        ]
+
+    asyncio.run(go())
+
+
+def test_save_failure_never_publishes_and_drops_only_that_email():
+    async def go():
+        rec = _Recorder()
+
+        async def save(email):
+            # msg(20) is the one storage cannot take.
+            if email.message_id == "<m20@example.com>":
+                raise StorageError("memory", email.message_id, RuntimeError("boom"))
+            return {"memory": email.message_id}
+
+        batch = [_msg(10), _msg(20), _msg(30)]
+        cursors = {"a@egg-ai.com": _T0}
+        p = _poller(
+            fetch=_static_fetch({"a@egg-ai.com": batch}),
+            publish=rec.publish,
+            cursors=cursors,
+            save=save,
+        )
+        summaries = await p.run_cycle()
+
+        # The unsaved message never reaches the bus; the batch continues.
+        published = [m.data.email.message_id for m in rec.published]
+        assert published == ["<m10@example.com>", "<m30@example.com>"]
+        # The cursor still advances past it: dropped, never re-delivered.
+        assert cursors["a@egg-ai.com"] == _T0 + timedelta(seconds=30)
+        assert summaries[0].published == 2
+        assert summaries[0].dropped == 1
+        assert summaries[0].error is None  # a drop is not a stopped batch
+
+    asyncio.run(go())
+
+
+def test_save_log_line_holds_the_email_id_and_no_content(caplog):
+    async def go():
+        rec = _Recorder()
+
+        async def save(email):
+            return {"memory": "stored-1"}
+
+        msg = _msg(10)
+        msg.subject = "March invoice"
+        msg.body = OutlookBody(content_type="html", content="<p>bank details</p>")
+        cursors = {"a@egg-ai.com": _T0}
+        p = _poller(
+            fetch=_static_fetch({"a@egg-ai.com": [msg]}),
+            publish=rec.publish,
+            cursors=cursors,
+            save=save,
+        )
+        with caplog.at_level("INFO", logger="outlook_connector.poller"):
+            await p.run_cycle()
+
+        saved = [r for r in caplog.records if r.getMessage().startswith("saved ")]
+        assert len(saved) == 1
+        line = saved[0].getMessage()
+        assert "<m10@example.com>" in line  # the email id
+        assert "stored-1" in line  # what the backend returned
+        assert "March invoice" not in line  # never the subject
+        assert "bank details" not in line  # never the body
+        assert "mime" not in line  # never the mime
+
+    asyncio.run(go())
+
+
+def test_storage_is_wired_by_default_and_stores_nothing_when_inactive():
+    """No injected ``save`` means the real one, which is a no-op with no backends."""
+
+    async def go():
+        init_backends([])
+        rec = _Recorder()
+        cursors = {"a@egg-ai.com": _T0}
+        p = Poller(
+            mailboxes=["a@egg-ai.com"],
+            fetch=_static_fetch({"a@egg-ai.com": [_msg(10)]}),
+            publish=rec.publish,
+            cursors=cursors,
+            now=lambda: _NOW,
+        )
+        await p.run_cycle()
+
+        assert len(rec.published) == 1
+
+    asyncio.run(go())
+
+
+def test_default_save_reaches_the_active_backend():
+    async def go():
+        (_, backend), = init_backends(["memory"])
+        try:
+            rec = _Recorder()
+            cursors = {"a@egg-ai.com": _T0}
+            p = Poller(
+                mailboxes=["a@egg-ai.com"],
+                fetch=_static_fetch({"a@egg-ai.com": [_msg(10)]}),
+                publish=rec.publish,
+                cursors=cursors,
+                now=lambda: _NOW,
+            )
+            await p.run_cycle()
+
+            assert list(backend.emails) == ["<m10@example.com>"]
+            assert len(rec.published) == 1
+        finally:
+            init_backends([])
+
+    asyncio.run(go())
+
+
 # --- Graph errors: cursor untouched, isolation across mailboxes ------------
 
 
@@ -389,6 +532,11 @@ if __name__ == "__main__":
     test_attachment_fetch_error_stops_batch_with_cursor_at_last_success()
     test_fetch_called_with_current_cursor_and_stamps_fetched_at()
     test_empty_batch_leaves_cursor_unchanged()
+    test_email_is_saved_before_it_is_published()
+    test_save_failure_never_publishes_and_drops_only_that_email()
+    # test_save_log_line_holds_the_email_id_and_no_content needs pytest's caplog
+    test_storage_is_wired_by_default_and_stores_nothing_when_inactive()
+    test_default_save_reaches_the_active_backend()
     test_publish_failure_mid_batch_stops_and_leaves_cursor_at_last_success()
     test_graph_error_on_fetch_leaves_cursor_untouched()
     test_network_error_on_fetch_is_caught()

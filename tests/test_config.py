@@ -144,6 +144,38 @@ def test_initial_cursor_parses_iso_datetime(tmp_path, monkeypatch):
     assert settings.initial_cursor == datetime(2026, 6, 26, 8, 0, tzinfo=timezone.utc)
 
 
+def test_storage_backends_default_to_none_active(tmp_path, monkeypatch):
+    """Storing nothing is a valid configuration."""
+    settings = _load(tmp_path, _VALID_YAML, monkeypatch)
+    assert settings.storage_backends == []
+
+
+def test_storage_backends_loaded_from_yaml(tmp_path, monkeypatch):
+    yaml = _VALID_YAML + "storage_backends:\n  - memory\n"
+    settings = _load(tmp_path, yaml, monkeypatch)
+    assert settings.storage_backends == ["memory"]
+
+
+def test_storage_backends_loaded_from_env(tmp_path, monkeypatch):
+    """``STORAGE_BACKENDS`` is a JSON list on the environment."""
+    settings = _load(tmp_path, _VALID_YAML, monkeypatch, STORAGE_BACKENDS='["memory"]')
+    assert settings.storage_backends == ["memory"]
+
+
+def test_unknown_storage_backend_fails_at_config_load(tmp_path, monkeypatch):
+    """A name no backend answers to is a startup error, not a runtime surprise."""
+    yaml = _VALID_YAML + "storage_backends:\n  - carrier-pigeon\n"
+    with pytest.raises(ValidationError, match="unknown storage backend"):
+        _load(tmp_path, yaml, monkeypatch)
+
+
+def test_repeated_storage_backend_fails_at_config_load(tmp_path, monkeypatch):
+    """A name may appear only once — at most one instance of each backend."""
+    yaml = _VALID_YAML + "storage_backends:\n  - memory\n  - memory\n"
+    with pytest.raises(ValidationError, match="listed more than once"):
+        _load(tmp_path, yaml, monkeypatch)
+
+
 def test_unknown_transport_fails_fast(tmp_path, monkeypatch):
     bad = _VALID_YAML.replace("transport: kafka", "transport: carrier-pigeon")
     with pytest.raises(ValidationError):
@@ -202,6 +234,11 @@ if __name__ == "__main__":
     _run(test_legacy_azure_block_is_rejected)
     _run(test_initial_cursor_defaults_to_none)
     _run(test_initial_cursor_parses_iso_datetime)
+    _run(test_storage_backends_default_to_none_active)
+    _run(test_storage_backends_loaded_from_yaml)
+    _run(test_storage_backends_loaded_from_env)
+    _run(test_unknown_storage_backend_fails_at_config_load)
+    _run(test_repeated_storage_backend_fails_at_config_load)
     _run(test_unknown_transport_fails_fast)
     _run(test_missing_config_file_fails_fast)
     print("All config tests passed.")

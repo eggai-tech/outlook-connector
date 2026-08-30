@@ -162,6 +162,65 @@ def test_in_flight_cycle_finishes_before_drain():
     asyncio.run(go())
 
 
+# --- storage is built at startup -------------------------------------------
+
+
+class _NullListener:
+    """Stands in for the ``email.send`` listener, which is not under test here."""
+
+    async def start(self):
+        pass
+
+    async def stop(self):
+        pass
+
+
+def test_run_service_builds_the_configured_storage_backends():
+    """Backends are constructed once, at startup, before any email is handled."""
+
+    async def go():
+        import contextlib
+
+        from outlook_connector import storage
+        from outlook_connector.config import Settings
+        from outlook_connector.service import run_service
+        from outlook_connector.storage.memory import MemoryStorage
+
+        settings = Settings(
+            mailboxes=["a@egg-ai.com"],
+            bus=BusConfig(transport="inmemory"),
+            storage_backends=["memory"],
+            azure_tenant_id="t",
+            azure_client_id="c",
+            azure_client_secret="s3cret",
+        )
+        first_cycle = asyncio.Event()
+
+        async def cycle():
+            first_cycle.set()
+
+        task = asyncio.create_task(
+            run_service(
+                settings,
+                InMemoryTransport(),
+                cycle=cycle,
+                listener=_NullListener(),
+            )
+        )
+        try:
+            await asyncio.wait_for(first_cycle.wait(), timeout=2.0)
+            active = storage.active_backends()
+            assert [name for name, _ in active] == ["memory"]
+            assert isinstance(active[0][1], MemoryStorage)
+        finally:
+            task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await task
+            storage.init_backends([])
+
+    asyncio.run(go())
+
+
 if __name__ == "__main__":
     test_build_inmemory_transport()
     test_build_kafka_transport_uses_broker_url()
@@ -172,4 +231,5 @@ if __name__ == "__main__":
     test_run_loop_invokes_cycle_each_iteration()
     test_request_stop_cancels_the_sleep_promptly()
     test_in_flight_cycle_finishes_before_drain()
+    test_run_service_builds_the_configured_storage_backends()
     print("All service tests passed.")
