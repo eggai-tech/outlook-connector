@@ -15,7 +15,7 @@ services:
     image: redis:7-alpine
     command: ["redis-server", "--appendonly", "yes"]
     ports:
-      - "${REDIS_HOST_PORT:-16379}:6379"
+      - "${REDIS_HOST_PORT:-36379}:6379"
     volumes:
       - redis-data:/data
     healthcheck:
@@ -31,7 +31,7 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-eggai}
       POSTGRES_DB: ${POSTGRES_DB:-outlook-connector}
     ports:
-      - "${POSTGRES_HOST_PORT:-15432}:5432"
+      - "${POSTGRES_HOST_PORT:-35432}:5432"
     volumes:
       - pg-data:/var/lib/postgresql/data
     healthcheck:
