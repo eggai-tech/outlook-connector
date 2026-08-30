@@ -76,6 +76,12 @@ loop or blocks the others:
      messages without attachments make no extra call. See the
      [email model](#email-model)'s attachments note.
    - Map it to the bus [email model](#email-model).
+   - **Save it to storage** (see [Storage](#storage)) — storage is the durable
+     record, so it is written *before* the bus. A failed save means the message
+     never reaches the bus: log it, advance the cursor anyway, and continue with
+     the next message. Retrying a failed save is out of scope, and holding the
+     cursor back would re-deliver every *later* message next cycle, so this
+     drops the one email rather than duplicating the rest.
    - Publish an `email.received` event to the bus.
    - On success, advance the cursor to this message's `receivedDateTime`.
    - On the **first publish failure, stop the batch** and leave the cursor at
@@ -144,6 +150,10 @@ An owned Pydantic model. outlook-helper's model is mapped into it.
 - `body_content_type` — `"html"` or `"text"`. **HTML is requested globally**
   (lossless superset; consumers can strip to text).
 - `preview` — optional short snippet (Graph's `bodyPreview`).
+- `mime` — the whole message as RFC 822 MIME. Graph serves it only on an
+  extra per-message call, which the poller does not make, so it is empty
+  unless it was populated. A [storage](#storage) backend may keep it
+  verbatim or ignore it.
 
 **Attachments** (metadata only — content is out of scope)
 
@@ -172,6 +182,38 @@ An owned Pydantic model. outlook-helper's model is mapped into it.
   place. **Never** written to the config file: a config file carrying any of
   them (or a pre-migration `azure:` block) is rejected at startup rather than
   silently ignored.
+- **Storage — `STORAGE_BACKENDS`:** the list of active backend names, e.g.
+  `["memory"]`, in the order each email is saved to them. A name may appear only
+  once, and a name no backend answers to is rejected at configuration load. Each
+  backend reads its own flat, prefixed `STORAGE_<BACKEND>_<FIELD>` fields (e.g.
+  `STORAGE_S3_BUCKET`); the fields of an inactive backend are ignored. Listing
+  none is valid — nothing is stored.
+
+## Storage
+
+Every received email is saved through **one generic call**, which passes the
+connector's own `Email` object to each active backend in turn and returns what
+each returned, keyed by backend name. Each backend decides how and where it
+stores an email — one blob per message, a row per field, whatever suits it — and
+the connector knows none of those details; it only logs the returned values.
+`Email` carries a `mime` field, empty unless it was populated, which a backend
+may keep verbatim or ignore.
+
+A backend reports failure by **raising**. The call stops at the first failure, so
+the backends after it are not called, and the error names the backend and the
+email. Because the walk stops there and a failed save is not retried, the same
+email may later be saved again by a backend that already holds it: **duplicates
+are the backend's business**, and the API makes no promise about what a second
+save does.
+
+Backends are constructed **once, at startup**, and live as long as the process; a
+backend that cannot start raises there and the connector does not start either.
+A reference in-memory backend (`memory`) ships with the feature — it keeps
+emails in a dict and can be emptied, so tests start from a known state. It is
+not meant for production.
+
+Logging never carries the subject, the body, or the `mime` field — only the
+email id, the backend names, and the values they returned.
 
 ## Startup & shutdown
 
@@ -190,7 +232,8 @@ publish, interrupting *between* publishes is always safe.
 ## Observability
 
 Stdlib `logging`, configurable level, to stdout (for container log capture).
-Each cycle emits a per-mailbox summary: fetched count, published count, errors.
+Each cycle emits a per-mailbox summary: fetched count, published count, dropped
+count (emails whose save failed), errors.
 No metrics stack in the MVP.
 
 ## Known limitations
@@ -205,6 +248,9 @@ These are intentional consequences of the MVP design:
   the exact `receivedDateTime` second of the batch maximum, arriving after that
   poll, can be dropped.
 - **Attachment content.** Only attachment *metadata* is bridged; content is not.
+- **Failed save drops the email.** An email no storage backend could take is not
+  published and is not retried; the cursor moves past it. See
+  [Storage](#storage).
 
 ## Dependency verification
 
