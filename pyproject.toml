@@ -1,13 +1,14 @@
 [project]
 name = "outlook-connector"
 version = "0.1.0"
-description = "Bridges M365 mailboxes to the eggai message bus"
+description = "Bridges M365 mailbox to message bus"
 readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
     "eggai>=0.3.2",
     "outlook-helper>=0.4.0",
     "pydantic-settings[yaml]>=2.0",
+    "structlog>=26.1.0",
 ]
 
 [project.scripts]

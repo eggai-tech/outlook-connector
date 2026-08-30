@@ -1,191 +1,93 @@
-"""The inbound poll loop's per-cycle, per-mailbox processing.
-
-Implements `the spec <docs/DESIGN.md#per-cycle-per-mailbox-processing>`.
-:meth:`Poller.run_cycle` is the unit of work the :class:`~service.Service`
-fixed-delay loop calls each cycle; it polls every configured mailbox
-**sequentially**, each inside its own ``try/except`` so one mailbox's failure
-never crashes the loop or blocks the others.
-
-Cursor / failure semantics (the "never duplicate, occasionally drop" principle):
-
-- Each mailbox has its own in-memory ``receivedDateTime`` cursor. A poll fetches
-  ``receivedDateTime > cursor`` (strict ``>``, served natively by the helper's
-  ``since_exclusive``).
-- The batch is processed **ascending**; the cursor advances to each message's
-  ``receivedDateTime`` only **after** a successful publish.
-- On the **first publish failure the batch stops**, leaving the cursor at the
-  last success so the next cycle resumes there without duplicating.
-- On any **Graph/transport error** the cursor is left untouched and the next
-  mailbox is polled; the fixed-delay loop retries next cycle.
-
-Every message is **saved to storage before it is published**: storage is the
-durable record, so it is written first, and a message whose save fails never
-reaches the bus. Retrying a failed save is out of scope, and holding the cursor
-back would re-deliver every later message next cycle — so a
-:class:`~outlook_connector.storage.StorageError` is logged, the cursor still
-advances, and that one email is dropped (counted in ``summary.dropped``). Every
-*other* failure keeps the existing stop-the-batch behaviour.
-
-Attachments are enriched inline: for each message whose free
-``has_attachments`` flag is set, the poller makes one extra Graph call via the
-injected ``fetch_attachments`` collaborator (metadata **and** content) and the
-result is mapped onto the event. Messages without attachments make **no** extra
-call. That call runs inside the same per-message ``try`` as publish, so a Graph
-error fetching attachments stops the batch with the cursor at the last success
-— the "never duplicate" path, retried next cycle.
-
-The ``fetch``, ``publish``, ``fetch_attachments`` and ``save`` collaborators are
-injected so the cursor logic is testable without a live Graph API, bus, or
-storage backend; :func:`service.build_poller` wires the real ones.
-"""
-
-import logging
-from collections.abc import Awaitable, Callable
-from dataclasses import dataclass
-from datetime import datetime, timezone
+import datetime
+from collections.abc import Callable
 
 import httpx
-from outlook_helper import GraphError, OutlookAttachment, OutlookMessage
+import structlog
+from outlook_helper import (
+    AppOnlyConfig,
+    ClientSecretCredential,
+    GraphError,
+    OutlookAttachment,
+    OutlookClient,
+    OutlookMessage,
+)
+from pydantic import BaseModel
 
-from outlook_connector.mapping import build_event
-from outlook_connector.schemas import Email
-from outlook_connector.storage import StorageError
-from outlook_connector.storage import save as save_to_storage
-
-logger = logging.getLogger(__name__)
-
-# Fetch new messages for a mailbox given its current cursor (async-wrapped Graph
-# call). Publish a built bus event. Both injected for testability.
-Fetch = Callable[[str, datetime], Awaitable[list[OutlookMessage]]]
-Publish = Callable[[object], Awaitable[None]]
-# Fetch per-attachment metadata + content for one message (mailbox, graph_id) ->
-# the extra async-wrapped Graph call, made only for attachment-bearing mail.
-FetchAttachments = Callable[[str, str], Awaitable[list[OutlookAttachment]]]
-# Save one email to every active storage backend, returning their values by
-# backend name. Defaults to the real :func:`outlook_connector.storage.save`.
-Save = Callable[[Email], Awaitable[dict[str, object]]]
+from outlook_connector.config import get_settings
 
 # Errors that mean "the Graph call failed" — leave the cursor, try next cycle.
 # The helper already retries 429/503 honoring Retry-After; everything else
 # (other 5xx, network failures) surfaces as one of these.
 _GRAPH_ERRORS = (GraphError, httpx.HTTPError)
 
-
-def _utcnow() -> datetime:
-    return datetime.now(timezone.utc)
+logger = structlog.getLogger()
 
 
-@dataclass
-class MailboxSummary:
-    """Per-cycle, per-mailbox observability record (also emitted to the log)."""
+class PollSummary(BaseModel):
+    """Per-cycle observability record (also emitted to the log)."""
 
-    mailbox: str
     fetched: int = 0
     published: int = 0
-    # Emails whose save failed: dropped rather than published (see below).
+    # emails whose save failed
     dropped: int = 0
     error: str | None = None
 
 
+def _utcnow() -> datetime.datetime:
+    return datetime.datetime.now(datetime.UTC)
+
+
+def _build_client():
+    settings = get_settings()
+    credential = ClientSecretCredential(
+        AppOnlyConfig(
+            client_id=settings.azure_client_id,
+            tenant_id=settings.azure_tenant_id,
+            client_secret=settings.azure_client_secret,
+        )
+    )
+    return OutlookClient(credential, settings.mailbox)
+
+
 class Poller:
-    """Polls mailboxes sequentially and bridges new mail to the bus."""
+    """
+    Mailbox poller.
+    Keeps its own last polled state.
+    """
 
     def __init__(
         self,
         *,
-        mailboxes: list[str],
-        fetch: Fetch,
-        publish: Publish,
-        cursors: dict[str, datetime],
-        now: Callable[[], datetime] = _utcnow,
-        fetch_attachments: FetchAttachments | None = None,
-        save: Save | None = None,
+        client: OutlookClient | None = None,
+        cursor: datetime.datetime | None = None,
+        now: Callable[[], datetime.datetime] = _utcnow,
     ):
-        self.mailboxes = mailboxes
-        self._fetch = fetch
-        self._publish = publish
-        self.cursors = cursors
-        self._now = now
-        self._fetch_attachments = fetch_attachments
-        self._save = save or save_to_storage
+        self.client = (
+            _build_client() if client is None else client
+        )  # can inject client for testing
+        self.cursor = cursor if cursor is not None else now
+        self.now = now
 
-    async def run_cycle(self) -> list[MailboxSummary]:
-        """Poll every mailbox once, in order, isolating per-mailbox failures."""
-        summaries = []
-        for mailbox in self.mailboxes:
-            summaries.append(await self._poll_mailbox(mailbox))
-        return summaries
-
-    async def _poll_mailbox(self, mailbox: str) -> MailboxSummary:
-        summary = MailboxSummary(mailbox)
-        cursor = self.cursors[mailbox]
-        fetched_at = self._now()
+    def poll_mailbox(self) -> PollSummary:
+        summary = PollSummary()
+        # fetched_at = self.now()
 
         try:
-            messages = await self._fetch(mailbox, cursor)
+            messages = self._fetch_message(self.cursor)
         except _GRAPH_ERRORS as exc:
             summary.error = f"{type(exc).__name__}: {exc}"
-            logger.warning("poll %s: fetch failed: %s", mailbox, summary.error)
+            logger.warning("poll: fetch failed: %s", summary.error)
             return summary
 
-        # Drop any without a timestamp (can't be ordered or cursored), then sort
-        # ascending so the cursor advances monotonically and we never duplicate.
-        messages = [m for m in messages if m.received_at is not None]
+        messages = list(
+            messages
+        )  # TODO Iterate through messages instead of loading them into memory
         messages.sort(key=lambda m: m.received_at)
         summary.fetched = len(messages)
+        return messages
 
-        for message in messages:
-            try:
-                attachments = await self._attachment_metadata(mailbox, message)
-                event = build_event(
-                    message,
-                    source_mailbox=mailbox,
-                    fetched_at=fetched_at,
-                    attachments=attachments,
-                )
-                email = event.data.email
-                stored = await self._save(email)
-                # Ids only: never the subject, the body, or the mime.
-                logger.info(
-                    "saved %s to storage: %s",
-                    email.message_id,
-                    stored or "(no backend)",
-                )
-                await self._publish(event)
-            except StorageError as exc:
-                # Storage is the durable record, so it is written first: a
-                # failed save means the message never reaches the bus. Retrying
-                # is out of scope, and holding the cursor back would re-deliver
-                # every *later* message next cycle — so the cursor still
-                # advances and this one email is dropped, keeping the "never
-                # duplicate, occasionally drop" bargain.
-                summary.dropped += 1
-                logger.warning("poll %s: dropped, save failed: %s", mailbox, exc)
-                self.cursors[mailbox] = message.received_at
-                continue
-            except Exception as exc:  # publish/map failure -> stop the batch
-                summary.error = f"{type(exc).__name__}: {exc}"
-                logger.warning(
-                    "poll %s: stopped batch at publish failure: %s",
-                    mailbox,
-                    summary.error,
-                )
-                break
-            self.cursors[mailbox] = message.received_at
-            summary.published += 1
-
-        logger.info(
-            "poll %s: fetched=%d published=%d dropped=%d error=%s",
-            mailbox,
-            summary.fetched,
-            summary.published,
-            summary.dropped,
-            summary.error,
-        )
-        return summary
-
-    async def _attachment_metadata(
-        self, mailbox: str, message: OutlookMessage
+    async def _fetch_attachments(
+        self, message: OutlookMessage
     ) -> list[OutlookAttachment]:
         """Fetch per-attachment metadata + content, only for attachment-bearing mail.
 
@@ -193,6 +95,14 @@ class Poller:
         attachments never incur the extra Graph call. Any Graph/transport error
         propagates to the caller's ``try``, which stops the batch.
         """
-        if not message.has_attachments or self._fetch_attachments is None:
+        if not message.has_attachments:
             return []
-        return await self._fetch_attachments(mailbox, message.id)
+        return self.client.get_attachments(message.id)
+
+    def _fetch_message(self, cursor):
+        return self.client.search_email(
+            folder="inbox",  # received mail only — exclude Sent Items
+            since_exclusive=cursor,  # strict >, sub-second precise
+            include_headers=True,  # internet_message_id + In-Reply-To/References
+            html_body=True,  # body guaranteed HTML
+        )

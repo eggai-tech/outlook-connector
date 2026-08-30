@@ -6,9 +6,7 @@
 # carries any of them.
 
 # Mailboxes to poll (at least one).
-mailboxes:
-  - invoices@egg-ai.com
-  - support@egg-ai.com
+mailbox: sandbox@egg-ai.com
 
 # Fixed-delay between poll cycles, in seconds.
 poll_interval_seconds: 60

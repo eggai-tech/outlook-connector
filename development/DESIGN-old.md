@@ -152,8 +152,7 @@ An owned Pydantic model. outlook-helper's model is mapped into it.
 - `preview` — optional short snippet (Graph's `bodyPreview`).
 - `mime` — the whole message as RFC 822 MIME. Graph serves it only on an
   extra per-message call, which the poller does not make, so it is empty
-  unless it was populated. A [storage](#storage) backend may keep it
-  verbatim or ignore it.
+  unless it was populated. [Storage](#storage) keeps it verbatim.
 
 **Attachments** (metadata only — content is out of scope)
 
@@ -182,47 +181,40 @@ An owned Pydantic model. outlook-helper's model is mapped into it.
   place. **Never** written to the config file: a config file carrying any of
   them (or a pre-migration `azure:` block) is rejected at startup rather than
   silently ignored.
-- **Storage — `STORAGE_BACKENDS`:** the list of active backend names, e.g.
-  `["memory"]`, in the order each email is saved to them. A name may appear only
-  once, and a name no backend answers to is rejected at configuration load. Each
-  backend reads its own flat, prefixed `STORAGE_<BACKEND>_<FIELD>` fields (e.g.
-  `STORAGE_S3_BUCKET`); the fields of an inactive backend are ignored. Listing
-  none is valid — nothing is stored.
+- **Storage — `DATABASE_URL`, environment variable only:** the PostgreSQL
+  connection URL. Like the Azure credential, it is a secret and never written to
+  the config file. It is required; there is nothing to select and nothing to turn
+  off.
 
 ## Storage
 
-Every received email is saved through **one generic call**, which passes the
-connector's own `Email` object to each active backend in turn and returns what
-each returned, keyed by backend name. Each backend decides how and where it
-stores an email — one blob per message, a row per field, whatever suits it — and
-the connector knows none of those details; it only logs the returned values.
-`Email` carries a `mime` field, empty unless it was populated, which a backend
-may keep verbatim or ignore.
+Every received email is saved to **PostgreSQL** through a single call,
+`save_to_storage(email)`, which takes the connector's own `Email` object. There
+is one store, chosen up front; the connector does not select, layer, or abstract
+over alternatives. `Email` carries a `mime` field, empty unless it was populated,
+which is stored verbatim.
 
-A backend reports failure by **raising**. The call stops at the first failure, so
-the backends after it are not called, and the error names the backend and the
-email. Because the walk stops there and a failed save is not retried, the same
-email may later be saved again by a backend that already holds it: **duplicates
-are the backend's business**, and the API makes no promise about what a second
-save does.
+Failure is reported by raising `StorageError`. The connector never retries a
+failed save, but an email *saved* and then *not published* is re-fetched and
+saved again next cycle (see [Flow](#per-cycle-per-mailbox-processing)), so the
+same email can arrive twice: **duplicate handling is the store's business**, and
+the call makes no promise about what a second save of the same email does.
 
-Backends are constructed **once, at startup**, and live as long as the process; a
-backend that cannot start raises there and the connector does not start either.
-A reference in-memory backend (`memory`) ships with the feature — it keeps
-emails in a dict and can be emptied, so tests start from a known state. It is
-not meant for production.
+The database connection is established **once, at startup**, from `DATABASE_URL`
+and lives as long as the process; if it cannot be established the connector does
+not start (see [Startup](#startup--shutdown)).
 
-Logging never carries the subject, the body, or the `mime` field — only the
-email id, the backend names, and the values they returned.
+Logging never carries the subject, the body, or the `mime` field — only the email
+id.
 
 ## Startup & shutdown
 
 **Startup — fail fast.** Validate the Pydantic config (including that the
-`AZURE_*` env vars are present) and connect to the bus eagerly. On any
-failure, log a clear error and **exit non-zero**; the orchestrator restarts with
-backoff. Mid-run bus loss is handled by the eggai client's reconnect plus the
-"publish fails → stop batch, retry next cycle" path — no bespoke reconnection
-logic in the MVP.
+`AZURE_*` env vars and `DATABASE_URL` are present), connect to PostgreSQL, and
+connect to the bus eagerly. On any failure, log a clear error and **exit
+non-zero**; the orchestrator restarts with backoff. Mid-run bus loss is handled
+by the eggai client's reconnect plus the "publish fails → stop batch, retry next
+cycle" path — no bespoke reconnection logic in the MVP.
 
 **Shutdown — graceful drain.** On `SIGTERM`/`SIGINT`, stop starting new cycles,
 let the current in-flight publish finish (cancel the sleep, not the publish),
@@ -248,7 +240,7 @@ These are intentional consequences of the MVP design:
   the exact `receivedDateTime` second of the batch maximum, arriving after that
   poll, can be dropped.
 - **Attachment content.** Only attachment *metadata* is bridged; content is not.
-- **Failed save drops the email.** An email no storage backend could take is not
+- **Failed save drops the email.** An email the database would not take is not
   published and is not retried; the cursor moves past it. See
   [Storage](#storage).
 
