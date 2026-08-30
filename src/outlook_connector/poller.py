@@ -18,6 +18,14 @@ Cursor / failure semantics (the "never duplicate, occasionally drop" principle):
 - On any **Graph/transport error** the cursor is left untouched and the next
   mailbox is polled; the fixed-delay loop retries next cycle.
 
+Every message is **saved to storage before it is published**: storage is the
+durable record, so it is written first, and a message whose save fails never
+reaches the bus. Retrying a failed save is out of scope, and holding the cursor
+back would re-deliver every later message next cycle — so a
+:class:`~outlook_connector.storage.StorageError` is logged, the cursor still
+advances, and that one email is dropped (counted in ``summary.dropped``). Every
+*other* failure keeps the existing stop-the-batch behaviour.
+
 Attachments are enriched inline: for each message whose free
 ``has_attachments`` flag is set, the poller makes one extra Graph call via the
 injected ``fetch_attachments`` collaborator (metadata **and** content) and the
@@ -26,9 +34,9 @@ call. That call runs inside the same per-message ``try`` as publish, so a Graph
 error fetching attachments stops the batch with the cursor at the last success
 — the "never duplicate" path, retried next cycle.
 
-The ``fetch``, ``publish`` and ``fetch_attachments`` collaborators are injected
-so the cursor logic is testable without a live Graph API or bus;
-:func:`service.build_poller` wires the real ones.
+The ``fetch``, ``publish``, ``fetch_attachments`` and ``save`` collaborators are
+injected so the cursor logic is testable without a live Graph API, bus, or
+storage backend; :func:`service.build_poller` wires the real ones.
 """
 
 import logging
@@ -40,6 +48,9 @@ import httpx
 from outlook_helper import GraphError, OutlookAttachment, OutlookMessage
 
 from outlook_connector.mapping import build_event
+from outlook_connector.schemas import Email
+from outlook_connector.storage import StorageError
+from outlook_connector.storage import save as save_to_storage
 
 logger = logging.getLogger(__name__)
 
@@ -50,6 +61,9 @@ Publish = Callable[[object], Awaitable[None]]
 # Fetch per-attachment metadata + content for one message (mailbox, graph_id) ->
 # the extra async-wrapped Graph call, made only for attachment-bearing mail.
 FetchAttachments = Callable[[str, str], Awaitable[list[OutlookAttachment]]]
+# Save one email to every active storage backend, returning their values by
+# backend name. Defaults to the real :func:`outlook_connector.storage.save`.
+Save = Callable[[Email], Awaitable[dict[str, object]]]
 
 # Errors that mean "the Graph call failed" — leave the cursor, try next cycle.
 # The helper already retries 429/503 honoring Retry-After; everything else
@@ -68,6 +82,8 @@ class MailboxSummary:
     mailbox: str
     fetched: int = 0
     published: int = 0
+    # Emails whose save failed: dropped rather than published (see below).
+    dropped: int = 0
     error: str | None = None
 
 
@@ -83,6 +99,7 @@ class Poller:
         cursors: dict[str, datetime],
         now: Callable[[], datetime] = _utcnow,
         fetch_attachments: FetchAttachments | None = None,
+        save: Save | None = None,
     ):
         self.mailboxes = mailboxes
         self._fetch = fetch
@@ -90,6 +107,7 @@ class Poller:
         self.cursors = cursors
         self._now = now
         self._fetch_attachments = fetch_attachments
+        self._save = save or save_to_storage
 
     async def run_cycle(self) -> list[MailboxSummary]:
         """Poll every mailbox once, in order, isolating per-mailbox failures."""
@@ -125,7 +143,26 @@ class Poller:
                     fetched_at=fetched_at,
                     attachments=attachments,
                 )
+                email = event.data.email
+                stored = await self._save(email)
+                # Ids only: never the subject, the body, or the mime.
+                logger.info(
+                    "saved %s to storage: %s",
+                    email.message_id,
+                    stored or "(no backend)",
+                )
                 await self._publish(event)
+            except StorageError as exc:
+                # Storage is the durable record, so it is written first: a
+                # failed save means the message never reaches the bus. Retrying
+                # is out of scope, and holding the cursor back would re-deliver
+                # every *later* message next cycle — so the cursor still
+                # advances and this one email is dropped, keeping the "never
+                # duplicate, occasionally drop" bargain.
+                summary.dropped += 1
+                logger.warning("poll %s: dropped, save failed: %s", mailbox, exc)
+                self.cursors[mailbox] = message.received_at
+                continue
             except Exception as exc:  # publish/map failure -> stop the batch
                 summary.error = f"{type(exc).__name__}: {exc}"
                 logger.warning(
@@ -138,10 +175,11 @@ class Poller:
             summary.published += 1
 
         logger.info(
-            "poll %s: fetched=%d published=%d error=%s",
+            "poll %s: fetched=%d published=%d dropped=%d error=%s",
             mailbox,
             summary.fetched,
             summary.published,
+            summary.dropped,
             summary.error,
         )
         return summary

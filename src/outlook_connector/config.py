@@ -14,7 +14,7 @@ import os
 from datetime import datetime
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from pydantic_settings import (
     BaseSettings,
     PydanticBaseSettingsSource,
@@ -60,11 +60,43 @@ class Settings(BaseSettings):
     initial_cursor: datetime | None = None
     log_level: str = "INFO"
     bus: BusConfig = Field(default_factory=BusConfig)
+    # Active storage backends by name (see :mod:`outlook_connector.storage`),
+    # in the order every received email is saved to them. Empty means nothing
+    # is stored — a valid configuration. Each backend reads its own flat,
+    # prefixed ``STORAGE_<BACKEND>_<FIELD>`` values; the fields of a backend
+    # that is not listed here are ignored.
+    storage_backends: list[str] = Field(default_factory=list)
 
     # Not allowed in config file. Env only.
     azure_tenant_id: str
     azure_client_id: str
     azure_client_secret: str
+
+    @field_validator("storage_backends")
+    @classmethod
+    def _validate_storage_backends(cls, names: list[str]) -> list[str]:
+        """Reject a repeated or unanswered backend name at configuration load.
+
+        A name may appear only once, so there is at most one instance of each
+        backend, and every name must be one a backend answers to — both are
+        startup errors rather than surprises on the first email. Imported here
+        rather than at module scope: a backend reads *this* module's settings,
+        so the dependency only points one way at import time.
+        """
+        from outlook_connector.storage import BACKENDS
+
+        duplicates = sorted({name for name in names if names.count(name) > 1})
+        if duplicates:
+            raise ValueError(
+                f"storage backend listed more than once: {', '.join(duplicates)}"
+            )
+        unknown = [name for name in names if name not in BACKENDS]
+        if unknown:
+            raise ValueError(
+                f"unknown storage backend: {', '.join(unknown)}. "
+                f"Known: {', '.join(sorted(BACKENDS)) or '(none)'}"
+            )
+        return names
 
     @classmethod
     def settings_customise_sources(

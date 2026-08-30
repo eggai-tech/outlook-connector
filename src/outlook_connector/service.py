@@ -265,6 +265,13 @@ async def run_service(
     listener is drained first so no new send is accepted once we begin stopping.
     """
     from outlook_connector.bus import build_transport
+    from outlook_connector.storage import init_backends
+
+    # Storage first: a backend that cannot start raises here, and the connector
+    # does not start either — backends are not optional. The instances live for
+    # the rest of the process.
+    active = init_backends(settings.storage_backends)
+    logger.info("Storage backends: %s", ", ".join(name for name, _ in active) or "none")
 
     transport = transport or build_transport(settings.bus)
     if cycle is None:

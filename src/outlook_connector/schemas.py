@@ -71,6 +71,10 @@ class Email(BaseModel):
     body: str
     body_content_type: Literal["html", "text"]
     preview: str | None = None  # Graph's bodyPreview
+    # The whole message as RFC 822 MIME (the helper's ``mime_content``). Graph
+    # serves it only on an extra per-message call, so it is None unless that
+    # call was made. A storage backend may keep it verbatim, or ignore it.
+    mime: str | None = None
 
     # Attachments (metadata only; empty for mail without attachments)
     has_attachments: bool = False

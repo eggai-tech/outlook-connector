@@ -96,6 +96,9 @@ def map_email(
         body=body,
         body_content_type=body_content_type,
         preview=msg.body_preview,
+        # Only populated when the message was fetched with ``include_mime``;
+        # the poller does not, so today this maps to None.
+        mime=msg.mime_content,
         has_attachments=msg.has_attachments,
         attachments=[_attachment(a) for a in attachments],
     )
