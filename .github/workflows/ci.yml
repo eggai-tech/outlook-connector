@@ -11,7 +11,32 @@ env:
   IMAGE_NAME: ${{ github.repository }}
 
 jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      # Installs the connector and the in-tree libs/outlook-helper. No
+      # credentials needed: there is no private git dependency any more.
+      - name: Sync the workspace
+        run: uv sync --all-packages --all-groups --frozen
+
+      - name: Connector tests
+        run: uv run pytest
+
+      # Own rootdir — see the `test-helper` recipe in /justfile.
+      - name: outlook-helper tests
+        run: uv run --directory libs/outlook-helper pytest
+
   build-and-push:
+    needs: test
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -54,6 +79,5 @@ jobs:
           push: ${{ github.event_name != 'pull_request' }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-          ssh: default
           cache-from: type=gha
           cache-to: type=gha,mode=max

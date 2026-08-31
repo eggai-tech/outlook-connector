@@ -1,0 +1,28 @@
+{
+  "id": "AAMkAGI1",
+  "subject": "Quarterly report",
+  "bodyPreview": "Here is the report",
+  "isRead": false,
+  "hasAttachments": true,
+  "importance": "high",
+  "webLink": "https://outlook.office365.com/owa/?ItemID=AAMkAGI1",
+  "conversationId": "CONV123",
+  "parentFolderId": "FOLDER_INBOX",
+  "receivedDateTime": "2026-06-18T09:30:00Z",
+  "sentDateTime": "2026-06-18T09:29:00Z",
+  "from": {
+    "emailAddress": { "name": "Alice Sender", "address": "alice@example.com" }
+  },
+  "toRecipients": [
+    { "emailAddress": { "name": "Bob", "address": "bob@example.com" } },
+    { "emailAddress": { "name": "Carol", "address": "carol@example.com" } }
+  ],
+  "ccRecipients": [
+    { "emailAddress": { "name": "Dan", "address": "dan@example.com" } }
+  ],
+  "bccRecipients": [],
+  "body": {
+    "contentType": "html",
+    "content": "<p>Here is the report</p>"
+  }
+}

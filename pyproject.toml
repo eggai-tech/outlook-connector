@@ -1,25 +1,39 @@
 [project]
 name = "outlook-connector"
 version = "0.1.0"
-description = "Add your description here"
+description = "Bridges M365 mailbox to message bus"
 readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
     "eggai>=0.3.2",
-    "outlook-helper",
+    "outlook-helper>=0.4.0",
     "pydantic-settings[yaml]>=2.0",
+    "structlog>=26.1.0",
 ]
 
+[project.scripts]
+outlook-connector = "outlook_connector.main:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+# `outlook-helper` lives in-tree at libs/outlook-helper so the two can be
+# developed together. It keeps its own pyproject and is installable standalone
+# (see README "Consuming outlook-helper elsewhere"). To extract it back into a
+# real dependency, drop [tool.uv.workspace], point the source below at its git
+# URL, and delete libs/ — no import or source change is needed anywhere.
+[tool.uv.workspace]
+members = ["libs/*"]
+
 [tool.uv.sources]
-outlook-helper = { git = "ssh://git@github.com/eggai-tech/outlook-helper.git", tag = "v0.3.0" }
+outlook-helper = { workspace = true }
 
 [dependency-groups]
 dev = [
     "pytest>=9.1.1",
+    "respx>=0.21",
 ]
 
 [tool.pytest.ini_options]
-# Tests live in tests/ but import the connector modules (mapping, poller, …)
-# from the project root, so keep the root on the import path.
 testpaths = ["tests"]
-pythonpath = ["."]

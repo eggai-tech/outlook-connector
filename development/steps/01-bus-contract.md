@@ -18,7 +18,7 @@ the spec (it carries attachment *content* as base64, a different envelope, and
 
 ### Envelope
 
-A Pydantic model per [the spec](../docs/implementation.md#envelope):
+A Pydantic model per [the spec](../../docs/DESIGN.md#envelope):
 
 | Field            | Meaning                                                |
 | ---------------- | ------------------------------------------------------ |
@@ -32,7 +32,7 @@ connector saw this at T", not "the cursor was T".
 
 ### Email model
 
-Owned Pydantic model per [the spec](../docs/implementation.md#email-model):
+Owned Pydantic model per [the spec](../../docs/DESIGN.md#email-model):
 
 - **Identity:** `message_id` (RFC 822 `internetMessageId`), `graph_id` (Graph
   internal item id, kept for follow-up Graph calls).

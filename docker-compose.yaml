@@ -1,0 +1,75 @@
+# Local build-and-run stack for the outlook-connector.
+#
+#   just up          # config.yaml + .env -> build -> up (see /justfile)
+#
+# The connector reads its structural config from a YAML file (CONFIG_FILE,
+# default /app/config.yaml) — mounted read-only below, never baked into the
+# image. The Azure credentials and any overrides come from .env.
+
+volumes:
+  pg-data:
+  redis-data:
+
+services:
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--appendonly", "yes"]
+    ports:
+      - "${REDIS_HOST_PORT:-36379}:6379"
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 2s
+      timeout: 2s
+      retries: 15
+
+  postgres:
+    image: postgres:17
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-eggai}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-eggai}
+      POSTGRES_DB: ${POSTGRES_DB:-outlook-connector}
+    ports:
+      - "${POSTGRES_HOST_PORT:-35432}:5432"
+    volumes:
+      - pg-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-eggai} -d ${POSTGRES_DB:-outlook-connector}"]
+      interval: 2s
+      timeout: 2s
+      retries: 20
+
+  connector:
+    build:
+      context: .
+    image: outlook-connector:local
+    # Carries the AZURE_* credentials (required) plus any overrides. Optional so
+    # a fresh clone without a .env still parses; startup then fails on them.
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      # The only broker in this stack is redis, so default the EggAI bus to it.
+      # `BUS__*` are pydantic-settings nested overrides and beat config.yaml;
+      # set them in .env to point at something else (e.g. kafka).
+      BUS__TRANSPORT: ${BUS__TRANSPORT:-redis}
+      BUS__BROKER_URL: ${BUS__BROKER_URL:-redis://redis:6379/0}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      EGGAI_NAMESPACE: ${EGGAI_NAMESPACE:-eggai}
+      # Not read by the connector yet (no persistence layer); here so the
+      # supporting database is addressable once one lands.
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-eggai}:${POSTGRES_PASSWORD:-eggai}@postgres:5432/${POSTGRES_DB:-outlook-connector}
+    volumes:
+      # Structural config, read-only. .dockerignore keeps config*.yaml out of the
+      # image on purpose — it is supplied here instead.
+      - ./config.yaml:/app/config.yaml:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+    # main.py drains on SIGTERM (the interval sleep is cancellable), so a clean
+    # stop is quick; leave room for an in-flight poll cycle to finish.
+    stop_grace_period: 30s

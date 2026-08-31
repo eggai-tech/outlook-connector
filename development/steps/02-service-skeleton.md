@@ -14,7 +14,7 @@ connects to the bus, idles, and shuts down cleanly.
 ### Configuration
 
 `pydantic-settings` (`BaseSettings`) with layering per
-[the spec](../docs/implementation.md#configuration):
+[the spec](../../docs/DESIGN.md#configuration):
 
 - **Structural config — YAML file:** mailbox address list, poll interval, bus
   connection (transport/broker URL, channel/topic), Azure `tenant_id`,
@@ -24,7 +24,7 @@ connects to the bus, idles, and shuts down cleanly.
 
 ### Startup — fail fast
 
-Per [the spec](../docs/implementation.md#startup--shutdown): validate the
+Per [the spec](../../docs/DESIGN.md#startup--shutdown): validate the
 Pydantic config (including that `client_secret` is present) and connect to the
 bus eagerly. On any failure, log a clear error and **exit non-zero**; the
 orchestrator restarts with backoff. No bespoke bus-reconnection logic.

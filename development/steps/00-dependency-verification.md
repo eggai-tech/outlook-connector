@@ -5,13 +5,14 @@
 
 ## Why
 
-The implementation spec [explicitly gates the design](../docs/implementation.md#dependency-verification)
+The implementation spec [explicitly gates the design](../../docs/DESIGN.md#dependency-verification)
 on capabilities of `outlook-helper` v0.1.0 that must be confirmed against its
 real API before building. Several design decisions collapse to fallbacks if a
 capability is missing.
 
-The dependency is checked out locally at `/Volumes/My/work/eggai/outlook-helper`
-(and pinned in `pyproject.toml` at tag `v0.1.0`).
+At the time of writing the dependency was a private git repository pinned in
+`pyproject.toml` at tag `v0.1.0`. It is now vendored in-tree at
+[libs/outlook-helper](../../libs/outlook-helper).
 
 ## What to confirm
 

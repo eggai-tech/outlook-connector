@@ -13,3 +13,5 @@ wheels/
 
 config*.yaml
 scripts
+
+__local # local untracked files

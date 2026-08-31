@@ -18,3 +18,12 @@ config*.yaml
 docs
 tests
 development
+
+# Vendored library dev material — the wheel only needs libs/*/outlook_helper,
+# its pyproject and its README.
+libs/*/tests
+libs/*/docs
+libs/*/specs
+libs/*/implementation
+libs/*/AGENTS.md
+libs/*/.python-version

@@ -13,14 +13,14 @@ after this piece and have a working connector.
 
 ### Poll loop
 
-Single `asyncio` loop per [the spec](../docs/implementation.md#flow):
+Single `asyncio` loop per [the spec](../../docs/DESIGN.md#flow):
 poll configured mailboxes **sequentially** each cycle, then **sleep the
 configured interval** (fixed-delay — the loop never overlaps itself). Default
 ~60s, configurable.
 
 ### Per-mailbox cursor
 
-Per [the spec](../docs/implementation.md#per-mailbox-cursor):
+Per [the spec](../../docs/DESIGN.md#per-mailbox-cursor):
 
 - Each mailbox has its own **last-seen `receivedDateTime` cursor**.
 - Cursor is **volatile** (in-memory), initialised to **"now"** on startup — only
@@ -32,7 +32,7 @@ Per [the spec](../docs/implementation.md#per-mailbox-cursor):
 
 ### Per-cycle, per-mailbox processing
 
-Per [the spec](../docs/implementation.md#per-cycle-per-mailbox-processing),
+Per [the spec](../../docs/DESIGN.md#per-cycle-per-mailbox-processing),
 inside `try/except` so one mailbox's failure never crashes the loop or blocks
 others:
 
@@ -63,7 +63,7 @@ count, published count, errors.
 **Never duplicate, occasionally drop.** Every cursor/failure decision biases
 toward never publishing a duplicate `email.received`, at the accepted cost of
 occasionally dropping an email. See
-[known limitations](../docs/implementation.md#known-limitations).
+[known limitations](../../docs/DESIGN.md#known-limitations).
 
 ## Done when
 
