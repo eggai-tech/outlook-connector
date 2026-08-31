@@ -11,7 +11,7 @@ from outlook_connector.service import run_service
 logger = structlog.get_logger()
 
 
-async def main() -> int:
+async def _run() -> None:
     logger.debug("OUTLOOK-CONNECTOR")
 
     logger.debug("Loading settings...")
@@ -25,6 +25,10 @@ async def main() -> int:
     await run_service()
 
 
+def main() -> None:
+    """Sync console-script entrypoint (the Docker ENTRYPOINT)."""
+    asyncio.run(_run())
+
+
 if __name__ == "__main__":
-    logger.debug("MAIN")
-    asyncio.run(main())
+    main()

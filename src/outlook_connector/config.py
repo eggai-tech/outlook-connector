@@ -62,10 +62,11 @@ class Settings(BaseSettings):
     log_level: str = "INFO"
     bus: BusConfig = Field(default_factory=BusConfig)
 
-    # Not allowed in config file. Env only.
-    azure_tenant_id: str
-    azure_client_id: str
-    azure_client_secret: str
+    # Not allowed in config file. Env only. min_length rejects the empty
+    # strings a compose file with `${AZURE_...:-}` defaults would pass in.
+    azure_tenant_id: str = Field(min_length=1)
+    azure_client_id: str = Field(min_length=1)
+    azure_client_secret: str = Field(min_length=1)
 
     @classmethod
     def settings_customise_sources(
