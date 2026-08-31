@@ -68,6 +68,9 @@ class Settings(BaseSettings):
     # starts at process-start "now" so only mail received after startup is
     # bridged. Set this to backfill from a known point in time instead.
     initial_cursor: datetime | None = None
+    # Port for the HTTP health/status endpoint (GET /health), bound on all
+    # interfaces. null disables the endpoint entirely.
+    health_port: int | None = Field(default=8000, gt=0, le=65535)
     log_level: str = "INFO"
     bus: BusConfig = Field(default_factory=BusConfig)
 

@@ -1,5 +1,6 @@
 import datetime
 from collections.abc import Callable
+from typing import Literal
 
 import httpx
 import structlog
@@ -31,6 +32,8 @@ class PollSummary(BaseModel):
     # emails skipped because publishing (or attachment fetch) failed mid-batch
     dropped: int = 0
     error: str | None = None
+    # which dependency the error came from: the Graph API or the bus publish
+    error_source: Literal["graph", "bus"] | None = None
 
 
 def _utcnow() -> datetime.datetime:
