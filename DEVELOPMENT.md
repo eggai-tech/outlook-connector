@@ -8,7 +8,7 @@ Working on the connector itself. For running it, see [README.md](README.md).
 src/outlook_connector/   the connector service
 tests/                   its test suite
 libs/outlook-helper/     the M365 Graph library, vendored in-tree
-docs/DESIGN.md   architecture and the bus message contract
+development/DESIGN.md    architecture and the bus message contract
 development/steps/       design notes kept from the initial build
 ```
 
@@ -85,7 +85,7 @@ then point the source at git:
 
 ```toml
 [tool.uv.sources]
-outlook-helper = { git = "ssh://git@github.com/eggai-tech/outlook-helper.git", tag = "v0.4.0" }
+outlook-helper = { git = "https://github.com/eggai-tech/outlook-helper.git", tag = "v0.4.0" }
 ```
 
 ## Releases

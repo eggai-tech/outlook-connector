@@ -5,13 +5,13 @@
 # come from the environment, and the connector refuses to start if this file
 # carries any of them.
 
-# Mailboxes to poll (at least one).
-mailbox: sandbox@egg-ai.com
+# The mailbox to poll.
+mailbox: inbox@example.com
 
 # Fixed-delay between poll cycles, in seconds.
 poll_interval_seconds: 60
 
-# Optional: seed every mailbox cursor from this instant (ISO 8601) instead of
+# Optional: seed the mailbox cursor from this instant (ISO 8601) instead of
 # process-start "now". Only mail received strictly after this point is bridged.
 # Leave commented to start from "now".
 # initial_cursor: 2026-06-26T08:00:00Z
@@ -19,9 +19,17 @@ poll_interval_seconds: 60
 # Log level (stdlib logging name): DEBUG | INFO | WARNING | ERROR.
 log_level: INFO
 
-# EggAI bus connection.
+# EggAI bus connection. The channel name is prefixed by the eggai SDK with the
+# EGGAI_NAMESPACE environment variable (default "eggai"), so events land on
+# "<namespace>.<channel>" — set EGGAI_NAMESPACE to match your consumers.
 bus:
   transport: kafka          # kafka | redis | inmemory
   broker_url: localhost:19092  # bootstrap servers (kafka) / URL (redis); omit for transport default
   channel: emails
+
+# Redis variant:
+# bus:
+#   transport: redis
+#   broker_url: redis://localhost:6379/0
+#   channel: emails
 

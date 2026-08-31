@@ -1,6 +1,6 @@
 # Implementation pieces
 
-The [inbound MVP](../docs/DESIGN.md) broken into independently shippable
+The [inbound MVP](DESIGN.md) broken into independently shippable
 vertical slices, in delivery order. Each piece is testable on its own; you could
 ship after Piece 3 and have a working connector.
 

@@ -1,8 +1,11 @@
 [project]
 name = "outlook-connector"
 version = "0.1.0"
-description = "Bridges M365 mailbox to message bus"
+description = "Bridges a Microsoft 365 mailbox to the EggAI message bus"
 readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [{ name = "EggAI Technologies" }]
 requires-python = ">=3.13"
 dependencies = [
     "eggai>=0.3.2",
@@ -10,6 +13,10 @@ dependencies = [
     "pydantic-settings[yaml]>=2.0",
     "structlog>=26.1.0",
 ]
+
+[project.urls]
+Repository = "https://github.com/eggai-tech/outlook-connector"
+Issues = "https://github.com/eggai-tech/outlook-connector/issues"
 
 [project.scripts]
 outlook-connector = "outlook_connector.main:main"
