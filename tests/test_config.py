@@ -25,6 +25,26 @@ def test_loads_minimal_config(tmp_path, monkeypatch, azure_env):
 
     assert settings.mailbox == "inbox@example.com"
     assert settings.bus.transport == "kafka"
+    assert settings.source_folder == "inbox"
+    assert settings.batch_max_messages is None
+    assert settings.max_attachment_bytes == 8 * 1024 * 1024
+
+
+def test_polling_fields_configurable(tmp_path, monkeypatch, azure_env):
+    _write_config(
+        tmp_path,
+        monkeypatch,
+        "mailbox: inbox@example.com\n"
+        "source_folder: Bankbestätigungen\n"
+        "batch_max_messages: 50\n"
+        "max_attachment_bytes: 1048576\n",
+    )
+
+    settings = Settings()
+
+    assert settings.source_folder == "Bankbestätigungen"
+    assert settings.batch_max_messages == 50
+    assert settings.max_attachment_bytes == 1048576
 
 
 def test_empty_azure_credential_rejected(tmp_path, monkeypatch, azure_env):

@@ -22,6 +22,9 @@ def build_poller():
 
     return Poller(
         cursor=initial_cursor,
+        source_folder=settings.source_folder,
+        batch_max_messages=settings.batch_max_messages,
+        max_attachment_bytes=settings.max_attachment_bytes,
     )
 
 

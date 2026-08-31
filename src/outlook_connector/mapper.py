@@ -23,15 +23,18 @@ def outlook_message_to_email(
         body_text=content if content_type == "text" else None,
         body_html=content if content_type == "html" else None,
         has_attachments=message.has_attachments,
-        # Item/reference attachments carry no bytes — only file attachments map.
+        # body is None for content withheld upstream: item/reference
+        # attachments (no bytes to fetch) or over the configured size cap.
         attachments=[
             EmailAttachment(
                 file_name=attachment.name or "",
                 content_type=attachment.content_type,
+                size=attachment.size
+                if attachment.size is not None
+                else (len(attachment.content) if attachment.content is not None else None),
                 body=attachment.content,
             )
             for attachment in attachments
-            if attachment.content is not None
         ],
         mime_content=message.mime_content,
     )

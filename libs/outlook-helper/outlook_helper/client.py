@@ -139,6 +139,7 @@ class OutlookClient:
         has_attachments: bool | None = None,
         folder: str | None = None,
         top: int | None = None,
+        oldest_first: bool = False,
         include_headers: bool = False,
         html_body: bool = False,
     ) -> Iterator[OutlookMessage]:
@@ -157,7 +158,11 @@ class OutlookClient:
             path = f"{self._base_path}/mailFolders/{folder_id}/messages"
         else:
             path = f"{self._base_path}/messages"
-        params: dict[str, Any] = {"$orderby": "receivedDateTime desc"}
+        # oldest_first matters when combined with ``top``: a bounded batch then
+        # drains a backlog from the oldest end instead of returning the newest
+        # N and starving the tail.
+        order = "receivedDateTime asc" if oldest_first else "receivedDateTime desc"
+        params: dict[str, Any] = {"$orderby": order}
         if clauses:
             params["$filter"] = " and ".join(clauses)
         if include_headers:

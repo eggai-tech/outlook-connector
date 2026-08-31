@@ -25,9 +25,16 @@ Base64OnWire = Annotated[
 
 
 class EmailAttachment(BaseModel):
+    """``body`` is ``None`` when the content is withheld: the attachment
+    exceeded ``max_attachment_bytes``, or it is an item/reference attachment
+    (a nested message or a link), which carries no bytes. ``size`` is the
+    original size in bytes as Graph reports it, kept even when the body is
+    withheld so consumers can log/decide without the content."""
+
     file_name: str
     content_type: str | None = None
-    body: Base64OnWire
+    size: int | None = None
+    body: Base64OnWire | None = None
 
 
 class Email(BaseModel):

@@ -65,15 +65,26 @@ class Poller:
         client: OutlookClient | None = None,
         cursor: datetime.datetime | None = None,
         now: Callable[[], datetime.datetime] = _utcnow,
+        source_folder: str = "inbox",
+        batch_max_messages: int | None = None,
+        max_attachment_bytes: int | None = None,
     ):
         self.client = (
             _build_client() if client is None else client
         )  # can inject client for testing
         self.cursor = cursor if cursor is not None else now()
         self.now = now
+        self.source_folder = source_folder
+        self.batch_max_messages = batch_max_messages
+        self.max_attachment_bytes = max_attachment_bytes
 
     def poll_mailbox(self) -> list[OutlookMessage]:
-        """Fetch messages received strictly after the cursor, oldest first.
+        """Fetch messages received strictly after the cursor, oldest first,
+        at most ``batch_max_messages`` per cycle.
+
+        The Graph query orders ascending so the bound takes the *oldest* N —
+        with max-seen cursor advancement, taking the newest N would skip the
+        backlog behind them permanently.
 
         Graph/transport errors propagate to the caller, which owns the
         error policy (log, leave the cursor, retry next cycle).
@@ -95,17 +106,36 @@ class Poller:
         """Fetch per-attachment metadata + content, only for attachment-bearing mail.
 
         Gated on the free native ``has_attachments`` flag so messages without
-        attachments never incur the extra Graph call. Any Graph/transport error
-        propagates to the caller, which stops the batch.
+        attachments never incur the extra Graph call. Content larger than
+        ``max_attachment_bytes`` is stripped to metadata (``content=None``).
+        Any Graph/transport error propagates to the caller, which stops the
+        batch.
         """
         if not message.has_attachments:
             return []
-        return self.client.get_attachments(message.id)
+        return [self._apply_size_cap(a, message) for a in self.client.get_attachments(message.id)]
+
+    def _apply_size_cap(
+        self, attachment: OutlookAttachment, message: OutlookMessage
+    ) -> OutlookAttachment:
+        cap = self.max_attachment_bytes
+        if cap is None or attachment.content is None or len(attachment.content) <= cap:
+            return attachment
+        logger.warning(
+            "Attachment over size cap; publishing metadata only",
+            message=message.id,
+            attachment=attachment.name,
+            size=len(attachment.content),
+            cap=cap,
+        )
+        return attachment.model_copy(update={"content": None})
 
     def _fetch_message(self, cursor):
         return self.client.search_email(
-            folder="inbox",  # received mail only — exclude Sent Items
+            folder=self.source_folder,
             since_exclusive=cursor,  # strict >, sub-second precise
+            top=self.batch_max_messages,
+            oldest_first=True,  # bound takes the oldest N (see poll_mailbox)
             include_headers=True,  # internet_message_id + In-Reply-To/References
             html_body=True,  # body guaranteed HTML
         )

@@ -36,7 +36,7 @@ def test_missing_sender_and_body_are_safe():
     assert email.body_text is None
 
 
-def test_attachments_mapped_and_contentless_skipped():
+def test_attachments_mapped_and_contentless_kept_as_metadata():
     message = make_message("m1", has_attachments=True)
     attachments = [
         make_attachment("doc.pdf"),
@@ -46,6 +46,9 @@ def test_attachments_mapped_and_contentless_skipped():
     email = outlook_message_to_email(message, attachments)
 
     assert email.has_attachments is True
-    assert [a.file_name for a in email.attachments] == ["doc.pdf"]
+    assert [a.file_name for a in email.attachments] == ["doc.pdf", "linked-item"]
     assert email.attachments[0].content_type == "application/pdf"
     assert email.attachments[0].body == b"%PDF-1.4"
+    assert email.attachments[0].size == len(b"%PDF-1.4")
+    # content withheld -> metadata-only entry, not dropped
+    assert email.attachments[1].body is None

@@ -54,7 +54,16 @@ class Settings(BaseSettings):
     )
 
     mailbox: str = Field(min_length=1)
+    # Folder to poll (well-known Graph name like "inbox", or a display name).
+    source_folder: str = Field(default="inbox", min_length=1)
     poll_interval_seconds: float = Field(default=60.0, gt=0)
+    # At most this many messages per poll cycle, oldest first; a backlog drains
+    # across cycles instead of in one unbounded burst. None = no bound.
+    batch_max_messages: int | None = Field(default=None, gt=0)
+    # Attachments larger than this are published as metadata only (body=None).
+    # Mind your broker's message-size limit (kafka defaults to ~1MB).
+    # None = no cap.
+    max_attachment_bytes: int | None = Field(default=8 * 1024 * 1024, gt=0)
     # Optional manual cursor seed (ISO 8601). When unset, each mailbox cursor
     # starts at process-start "now" so only mail received after startup is
     # bridged. Set this to backfill from a known point in time instead.

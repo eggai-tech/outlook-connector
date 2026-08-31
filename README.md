@@ -19,8 +19,11 @@ message:
 
 - maps it to an owned, Graph-independent `Email` model — sender/recipients,
   subject, HTML/text body, `internetMessageId`, received timestamp;
-- fetches **attachment content** inline (file attachments; item/reference
-  attachments carry no bytes and are skipped);
+- fetches **attachment content** inline, up to a configurable size cap
+  (`max_attachment_bytes`, default 8 MiB). Over the cap — and for
+  item/reference attachments, which carry no bytes — the attachment is
+  published as metadata only (`body: null`, with `file_name`, `content_type`
+  and `size` kept);
 - wraps it in a typed CloudEvents envelope (`type: email.received`) and
   publishes it to a configurable channel over kafka, redis, or an in-memory
   transport.
@@ -45,7 +48,10 @@ and a `data` payload of:
 `Email`: `id` (Graph immutable id), `internet_message_id` (RFC 822 — the
 natural dedup key for consumers), `from_addresses`, `to_addresses`, `subject`,
 `received_at`, `body_html`/`body_text`, `has_attachments`,
-`attachments[{file_name, content_type, body}]`, `mime_content`. Models live in
+`attachments[{file_name, content_type, size, body}]` (`body` is base64 on the
+wire, and `null` when content is withheld — size cap or item/reference
+attachment). Mind the broker's message-size limit when raising
+`max_attachment_bytes`: kafka defaults to ~1MB per message. Models live in
 [`src/outlook_connector/schemas.py`](src/outlook_connector/schemas.py) and
 [`bus.py`](src/outlook_connector/bus.py).
 
@@ -53,6 +59,26 @@ The channel name is set by `bus.channel` in `config.yaml`; the eggai SDK
 prefixes it with the `EGGAI_NAMESPACE` environment variable (default `eggai`),
 so events land on `<namespace>.<channel>` — set the namespace to match your
 consumers.
+
+## Azure setup
+
+The connector uses **app-only authentication** (OAuth 2.0 client credentials):
+it acts as itself, no user signed in. One-time setup in Azure:
+
+1. **Register an application.** Azure Portal → Microsoft Entra ID → App
+   registrations → New registration. Single tenant, no redirect URI. Note the
+   **Application (client) ID** → `AZURE_CLIENT_ID` and the **Directory (tenant)
+   ID** → `AZURE_TENANT_ID`.
+2. **Create a client secret.** Certificates & secrets → New client secret; copy
+   the **Value** (shown once) → `AZURE_CLIENT_SECRET`.
+3. **Grant API permissions.** API permissions → Add → Microsoft Graph →
+   **Application permissions** (not delegated) → `Mail.Read`, then **Grant
+   admin consent** — the permission is inert until an admin approves it.
+
+> **Scope it down.** Application permissions cover **every mailbox in the
+> tenant** by default. For anything beyond a sandbox, constrain the app to the
+> one connected mailbox with an
+> [Application Access Policy](https://learn.microsoft.com/graph/auth-limit-mailbox-access).
 
 ## Quickstart
 
