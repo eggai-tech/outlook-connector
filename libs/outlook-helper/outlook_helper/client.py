@@ -402,12 +402,12 @@ class OutlookClient:
     def _iter_messages(
         self, path: str, params: dict, top: int | None, headers: dict | None = None
     ) -> Iterator[OutlookMessage]:
-        if top is not None:
-            # Ask Graph for bigger pages (its default is 10 messages per page)
-            # so a bounded read is one round trip, not top/10. $top is a page
-            # size, not a total — islice below stays the exact bound. Capped at
-            # 100, which mail endpoints accept everywhere.
-            params = {**params, "$top": min(top, 100)}
+        # Ask Graph for bigger pages (its default is 10 messages per page):
+        # an unbounded listing then costs N/100 round trips instead of N/10,
+        # and a bounded read is one round trip, not top/10. $top is a page
+        # size, not a total — islice below stays the exact bound. Capped at
+        # 100, which mail endpoints accept everywhere.
+        params = {**params, "$top": 100 if top is None else min(top, 100)}
         raw = self._session.paginate(path, params, headers=headers)
         if top is not None:
             raw = itertools.islice(raw, top)

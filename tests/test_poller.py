@@ -139,3 +139,25 @@ def test_oversized_attachment_stripped_to_metadata():
     assert small.content == b"ok"
     assert huge.content is None
     assert huge.size == 100  # original size survives for the metadata-only entry
+
+def test_listed_message_gone_before_fetch_is_skipped():
+    """The downstream mover files mail out of the folder concurrently; a 404
+    between the listing and the full fetch must skip that message, not abort
+    the whole cycle."""
+    from outlook_helper import GraphError
+
+    kept = make_message("kept")
+    gone = make_message("gone")
+
+    class RacyClient(FakeClient):
+        def get_email(self, message_id, **kwargs):
+            if message_id == "gone":
+                raise GraphError(status_code=404, message="ErrorItemNotFound")
+            return super().get_email(message_id, **kwargs)
+
+    client = RacyClient(messages=[gone, kept])
+    poller = Poller(client=client)
+
+    fetched = poller.poll_mailbox()
+
+    assert [m.id for m in fetched] == ["kept"]

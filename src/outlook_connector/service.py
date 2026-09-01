@@ -125,7 +125,9 @@ async def run_service() -> None:
         # the stop-batch policy, block everything behind them.
         logger.warning(
             "max_attachment_bytes exceeds what kafka's default 1MiB message "
-            "limit can carry; lower the cap or raise the broker/producer limit",
+            "limit can carry; lower the cap or raise the broker/producer "
+            "limit. Note the cap is PER attachment: a multi-attachment "
+            "message can exceed the broker limit even under a smaller cap",
             max_attachment_bytes=settings.max_attachment_bytes,
         )
     monitor = HealthMonitor(poll_interval_seconds=settings.poll_interval_seconds)

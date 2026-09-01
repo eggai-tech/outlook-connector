@@ -151,9 +151,18 @@ class Poller:
 
         messages = []
         for stub in unseen:
-            messages.append(
-                self.client.get_email(stub.id, include_headers=True, html_body=True)
-            )
+            try:
+                messages.append(
+                    self.client.get_email(stub.id, include_headers=True, html_body=True)
+                )
+            except GraphError as exc:
+                if exc.status_code == 404:
+                    # Moved/deleted between the listing and the fetch — the
+                    # downstream mover does exactly this concurrently. The
+                    # next listing simply won't contain it.
+                    logger.debug("Listed message gone before fetch", message=stub.id)
+                    continue
+                raise
             self.heartbeat()
         return messages
 

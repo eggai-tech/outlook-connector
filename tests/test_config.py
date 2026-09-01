@@ -50,7 +50,7 @@ def test_loads_minimal_config(tmp_path, monkeypatch, azure_env):
     assert settings.mailbox == "inbox@example.com"
     assert settings.bus.transport == "kafka"
     assert settings.source_folder == "inbox"
-    assert settings.batch_max_messages is None
+    assert settings.batch_max_messages == 100
     assert settings.max_attachment_bytes == 8 * 1024 * 1024
 
 

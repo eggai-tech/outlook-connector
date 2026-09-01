@@ -14,8 +14,9 @@ mailbox: inbox@example.com
 # Fixed-delay between poll cycles, in seconds.
 poll_interval_seconds: 60
 
-# At most this many messages per cycle, oldest first — a backlog drains
-# predictably across cycles. Comment out for no bound.
+# At most this many messages fetched + published per cycle, oldest first —
+# a backlog (or a restart's re-emit) drains predictably across cycles.
+# Default 100; null removes the bound (only sensible for small folders).
 # batch_max_messages: 100
 
 # Attachments larger than this are published as metadata only (body: null).

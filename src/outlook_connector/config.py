@@ -57,9 +57,11 @@ class Settings(BaseSettings):
     # Folder to poll (well-known Graph name like "inbox", or a display name).
     source_folder: str = Field(default="inbox", min_length=1)
     poll_interval_seconds: float = Field(default=60.0, gt=0)
-    # At most this many messages per poll cycle, oldest first; a backlog drains
-    # across cycles instead of in one unbounded burst. None = no bound.
-    batch_max_messages: int | None = Field(default=None, gt=0)
+    # At most this many messages fetched + published per poll cycle, oldest
+    # first; a backlog (or a restart's re-emit of the whole folder) drains
+    # across cycles instead of in one unbounded burst of full-message fetches.
+    # null = no bound — only sensible for small, drained folders.
+    batch_max_messages: int | None = Field(default=100, gt=0)
     # Attachments larger than this are published as metadata only (body=None).
     # Mind your broker's message-size limit (kafka defaults to ~1MB).
     # None = no cap.
