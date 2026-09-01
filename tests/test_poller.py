@@ -63,14 +63,40 @@ def test_oversized_attachment_stripped_to_metadata():
 def test_advance_is_monotonic():
     poller = Poller(client=FakeClient(), cursor=_at(10))
 
-    poller.advance(_at(30))
+    poller.advance(make_message("m1", received_at=_at(30)))
     assert poller.cursor == _at(30)
 
-    poller.advance(_at(20))  # out-of-order timestamp must not pull the cursor back
+    # out-of-order timestamp must not pull the cursor back
+    poller.advance(make_message("m2", received_at=_at(20)))
     assert poller.cursor == _at(30)
 
-    poller.advance(None)
+    poller.advance(make_message("m3", received_at=None))
     assert poller.cursor == _at(30)
+
+
+def test_published_messages_are_not_refetched_and_boundary_bumps():
+    """Graph truncates receivedDateTime to seconds in responses but filters on
+    its finer stored value, so `gt <cursor>` keeps matching the newest message
+    — observed live as an infinite republish every cycle. Published ids are
+    filtered out, and a window of only-already-published mail bumps the cursor
+    past the truncated second."""
+    message = make_message("m1", received_at=_at(10))
+    client = FakeClient(messages=[message])
+    poller = Poller(client=client, cursor=T0)
+
+    first = poller.poll_mailbox()
+    assert [m.id for m in first] == ["m1"]
+    poller.advance(message)
+    assert poller.cursor == _at(10)
+
+    # Graph keeps returning the boundary message despite since_exclusive
+    second = poller.poll_mailbox()
+    assert second == []  # not republished
+    assert poller.cursor == _at(11)  # bumped past the truncated second
+
+    third_call_cursor_before = poller.cursor
+    poller.poll_mailbox()
+    assert client.search_calls[2]["since_exclusive"] == third_call_cursor_before
 
 
 def test_fetch_attachments_gated_on_flag():

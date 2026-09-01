@@ -1,4 +1,5 @@
 import datetime
+from collections import OrderedDict
 from collections.abc import Callable
 
 import httpx
@@ -77,6 +78,12 @@ class Poller:
         self.source_folder = source_folder
         self.batch_max_messages = batch_max_messages
         self.max_attachment_bytes = max_attachment_bytes
+        # Graph ids already published. Graph returns receivedDateTime truncated
+        # to whole seconds but compares filters against its finer stored value,
+        # so `gt <truncated cursor>` keeps matching the boundary message — the
+        # newest mail would be re-fetched and re-published every cycle forever
+        # (observed live). Bounded; only ever consulted for the cursor window.
+        self._published_ids: OrderedDict[str, None] = OrderedDict()
 
     def poll_mailbox(self) -> list[OutlookMessage]:
         """Fetch messages received strictly after the cursor, oldest first,
@@ -89,16 +96,38 @@ class Poller:
         Graph/transport errors propagate to the caller, which owns the
         error policy (log, leave the cursor, retry next cycle).
         """
-        messages = list(self._fetch_message(self.cursor))
+        raw = list(self._fetch_message(self.cursor))
+        messages = [m for m in raw if m.id not in self._published_ids]
+        if raw and not messages:
+            # The whole window was already published: we are stuck on the
+            # truncated-timestamp boundary (see _published_ids). Step the
+            # cursor past that second. A mail sharing it that has not been
+            # *fetched* yet can be dropped — the same, already documented,
+            # boundary-drop tradeoff the strict-gt design accepts.
+            stamps = [m.received_at for m in raw if m.received_at is not None]
+            if stamps:
+                bumped = max(stamps) + datetime.timedelta(seconds=1)
+                if bumped > self.cursor:
+                    logger.debug("Cursor bumped past truncated boundary", cursor=bumped)
+                    self.cursor = bumped
+        elif len(messages) < len(raw):
+            logger.debug(
+                "Skipping already-published messages", skipped=len(raw) - len(messages)
+            )
         messages.sort(key=lambda m: (m.received_at is not None, m.received_at))
         return messages
 
-    def advance(self, received_at: datetime.datetime | None) -> None:
-        """Move the cursor forward to a successfully published message.
+    def advance(self, message: OutlookMessage) -> None:
+        """Record a successfully published message and move the cursor to it.
 
-        Only ever advances (max-seen), so an out-of-order timestamp can never
-        pull the cursor back and cause a re-publish.
+        The cursor only ever advances (max-seen), so an out-of-order timestamp
+        can never pull it back; the id is remembered so the truncated-timestamp
+        boundary message is not re-published next cycle (see poll_mailbox).
         """
+        self._published_ids[message.id] = None
+        while len(self._published_ids) > 512:
+            self._published_ids.popitem(last=False)
+        received_at = message.received_at
         if received_at is not None and received_at > self.cursor:
             self.cursor = received_at
 

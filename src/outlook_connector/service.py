@@ -86,7 +86,7 @@ async def run_workflow(context) -> PollSummary:
                 error=summary.error,
             )
             break
-        poller.advance(message.received_at)
+        poller.advance(message)
         summary.published += 1
 
     logger.info(
