@@ -1,6 +1,6 @@
+import asyncio
 import datetime
 import json
-import urllib.error
 import urllib.request
 
 from conftest import T0
@@ -160,38 +160,43 @@ def test_long_backfill_with_beats_is_not_stale():
     assert monitor.snapshot().status == "stale"
 
 
-def _get(port: int, path: str):
-    return urllib.request.urlopen(f"http://localhost:{port}{path}", timeout=5)
+async def test_http_endpoint_serves_snapshot():
+    from aiohttp.test_utils import TestClient, TestServer
 
+    from outlook_connector.health import build_app
 
-def test_http_endpoint_serves_snapshot():
     monitor, clock = make_monitor()
-    server = start_health_server(monitor, port=0)  # ephemeral port
-    try:
+    async with TestClient(TestServer(build_app(monitor))) as client:
         monitor.record_cycle(PollSummary(fetched=1, published=1))
 
-        with _get(server.port, "/health") as response:
-            assert response.status == 200
-            payload = json.loads(response.read())
+        response = await client.get("/health")
+        assert response.status == 200
+        payload = json.loads(await response.text())
         assert payload["status"] == "ok"
         assert payload["last_cycle"]["published"] == 1
         # unauthenticated endpoint: no identity in the payload
         assert "mailbox" not in payload
         assert "source_folder" not in payload
 
-        try:
-            _get(server.port, "/nope")
-            raise AssertionError("expected 404")
-        except urllib.error.HTTPError as exc:
-            assert exc.code == 404
+        response = await client.get("/nope")
+        assert response.status == 404
 
         clock.advance(3600)  # wedge the loop
-        try:
-            _get(server.port, "/health")
-            raise AssertionError("expected 503")
-        except urllib.error.HTTPError as exc:
-            assert exc.code == 503
-            assert json.loads(exc.read())["status"] == "stale"
+        response = await client.get("/health")
+        assert response.status == 503
+        assert json.loads(await response.text())["status"] == "stale"
+
+
+async def test_start_health_server_binds_and_cleans_up():
+    monitor, _ = make_monitor()
+    runner = await start_health_server(monitor, port=0)  # ephemeral port
+    try:
+        site = next(iter(runner.sites))
+        port = site._server.sockets[0].getsockname()[1]  # noqa: SLF001
+        response = await asyncio.to_thread(
+            urllib.request.urlopen, f"http://localhost:{port}/health", None, 5
+        )
+        with response:
+            assert response.status == 200
     finally:
-        server.shutdown()
-        server.server_close()
+        await runner.cleanup()

@@ -136,11 +136,17 @@ curl -s localhost:38000/health   # 38000 is the compose host mapping
 
 `status` is `starting` before the first poll cycle, `ok`, `degraded` (the last
 cycle hit an error — the failing side shows in `graph`/`bus`), or `stale` (no
-cycle completed within ~3 poll intervals: the loop is wedged). The HTTP code
+polling progress within ~3 poll intervals: the poller is wedged). The HTTP code
 stays **200** for everything except `stale`, which returns **503** — a Graph or
 bus outage is visible in the body but does not fail the probe, because
 restarting the connector cannot fix an external dependency. The compose file
 wires this into a Docker healthcheck.
+
+The endpoint is served from the service's own event loop (aiohttp), so the two
+failure modes are caught by two mechanisms: a **frozen event loop** stops
+answering entirely and the probe's *timeout* catches it, while a **wedged
+poller** (the Graph work runs in worker threads, so the loop stays responsive)
+is what the `stale`/503 staleness window catches.
 
 The endpoint is **unauthenticated**, so the payload deliberately carries no
 identity: no mailbox address, no folder name, and errors are reduced to

@@ -1,14 +1,19 @@
 """Health/status HTTP endpoint.
 
-The poll loop reports each cycle to a :class:`HealthMonitor`; a stdlib HTTP
-server (daemon thread, no extra dependencies) serves the current snapshot as
-JSON on ``GET /health``.
+The poll loop reports each cycle to a :class:`HealthMonitor`; an aiohttp app
+**on the service's own event loop** serves the current snapshot as JSON on
+``GET /health``. Serving from the loop is deliberate: two distinct failure
+modes get caught by two distinct mechanisms —
 
-Status codes are chosen for orchestrator probes: the endpoint answers 200 as
-long as the poll loop is alive and ticking — even while Graph or the bus is
-erroring, because restarting the connector cannot fix an external outage (the
-body still reports the errors) — and 503 only once the loop itself is wedged:
-no completed cycle within the staleness window.
+- a **frozen event loop** stops answering entirely, so an orchestrator's probe
+  *timeout* catches it within seconds;
+- a **wedged poller** (the actual work runs in ``asyncio.to_thread``, so the
+  loop stays responsive while a Graph call hangs) is caught by the staleness
+  window: no progress beat within ~3 poll intervals → **503**.
+
+Otherwise the endpoint answers 200 as long as polling makes progress — even
+while Graph or the bus is erroring, because restarting the connector cannot fix
+an external outage (the body still reports the errors under ``degraded``).
 
 The endpoint is unauthenticated, so the payload deliberately carries no
 identity: no mailbox address, no folder name, and errors reduced to exception
@@ -18,10 +23,10 @@ and URLs — stays in the logs). Expose the port to internal networks only.
 
 import datetime
 import threading
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Literal
 
 import structlog
+from aiohttp import web
 from pydantic import BaseModel
 
 from outlook_connector.poller import PollSummary
@@ -183,42 +188,32 @@ class HealthMonitor:
             )
 
 
-class _HealthHandler(BaseHTTPRequestHandler):
-    server: "HealthServer"
+def build_app(monitor: HealthMonitor) -> web.Application:
+    async def health(_request: web.Request) -> web.Response:
+        snapshot = monitor.snapshot()
+        return web.Response(
+            status=503 if snapshot.status == "stale" else 200,
+            text=snapshot.model_dump_json(indent=2) + "\n",
+            content_type="application/json",
+        )
 
-    def do_GET(self) -> None:
-        if self.path.split("?", 1)[0] not in ("/health", "/"):
-            self.send_error(404)
-            return
-        snapshot = self.server.monitor.snapshot()
-        body = snapshot.model_dump_json(indent=2).encode() + b"\n"
-        self.send_response(503 if snapshot.status == "stale" else 200)
-        self.send_header("Content-Type", "application/json")
-        self.send_header("Content-Length", str(len(body)))
-        self.end_headers()
-        self.wfile.write(body)
-
-    def log_message(self, format, *args) -> None:  # noqa: A002 (stdlib signature)
-        logger.debug("Health request", detail=format % args)
+    app = web.Application()
+    app.router.add_get("/health", health)
+    app.router.add_get("/", health)
+    return app
 
 
-class HealthServer(ThreadingHTTPServer):
-    daemon_threads = True
+async def start_health_server(monitor: HealthMonitor, port: int) -> web.AppRunner:
+    """Serve ``GET /health`` on all interfaces, on the running event loop.
 
-    def __init__(self, monitor: HealthMonitor, port: int):
-        super().__init__(("", port), _HealthHandler)
-        self.monitor = monitor
-
-    @property
-    def port(self) -> int:
-        return self.server_address[1]
-
-
-def start_health_server(monitor: HealthMonitor, port: int) -> HealthServer:
-    """Serve ``GET /health`` on all interfaces in a daemon thread."""
-    server = HealthServer(monitor, port)
-    threading.Thread(
-        target=server.serve_forever, name="health-http", daemon=True
-    ).start()
-    logger.info("Health endpoint listening", port=server.port)
-    return server
+    Returns the runner; ``await runner.cleanup()`` on shutdown. A frozen event
+    loop makes the endpoint stop answering — by design (see module docstring):
+    the orchestrator probe's timeout is the detection for that failure mode.
+    """
+    runner = web.AppRunner(build_app(monitor), access_log=None)
+    await runner.setup()
+    site = web.TCPSite(runner, "0.0.0.0", port)
+    await site.start()
+    bound = site._server.sockets[0].getsockname()[1]  # noqa: SLF001 (real port when port=0 in tests)
+    logger.info("Health endpoint listening", port=bound)
+    return runner

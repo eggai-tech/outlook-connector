@@ -129,12 +129,17 @@ async def run_service() -> None:
 
     monitor = HealthMonitor(poll_interval_seconds=settings.poll_interval_seconds)
     context["heartbeat"] = monitor.beat
+    runner = None
     if settings.health_port is not None:
-        start_health_server(monitor, settings.health_port)
+        runner = await start_health_server(monitor, settings.health_port)
 
-    while True:
-        logger.debug("Tick.", poll_interval_seconds=settings.poll_interval_seconds)
+    try:
+        while True:
+            logger.debug("Tick.", poll_interval_seconds=settings.poll_interval_seconds)
 
-        summary = await run_workflow(context)
-        monitor.record_cycle(summary)
-        await asyncio.sleep(settings.poll_interval_seconds)
+            summary = await run_workflow(context)
+            monitor.record_cycle(summary)
+            await asyncio.sleep(settings.poll_interval_seconds)
+    finally:
+        if runner is not None:
+            await runner.cleanup()
