@@ -142,7 +142,10 @@ class OutlookClient:
         oldest_first: bool = False,
         include_headers: bool = False,
         html_body: bool = False,
+        ids_only: bool = False,
     ) -> Iterator[OutlookMessage]:
+        if ids_only and include_headers:
+            raise ValueError("ids_only and include_headers are mutually exclusive")
         clauses = _build_filter_clauses(
             sender=sender,
             subject_contains=subject_contains,
@@ -167,6 +170,10 @@ class OutlookClient:
             params["$filter"] = " and ".join(clauses)
         if include_headers:
             params["$select"] = _MESSAGE_SELECT
+        if ids_only:
+            # id + the sort key, nothing else: a whole-folder listing at
+            # minimal payload cost, for callers that fetch bodies separately.
+            params["$select"] = "id,receivedDateTime"
         headers = dict(_PREFER_HTML) if html_body else None
         return self._iter_messages(path, params, top=top, headers=headers)
 
@@ -395,6 +402,12 @@ class OutlookClient:
     def _iter_messages(
         self, path: str, params: dict, top: int | None, headers: dict | None = None
     ) -> Iterator[OutlookMessage]:
+        if top is not None:
+            # Ask Graph for bigger pages (its default is 10 messages per page)
+            # so a bounded read is one round trip, not top/10. $top is a page
+            # size, not a total — islice below stays the exact bound. Capped at
+            # 100, which mail endpoints accept everywhere.
+            params = {**params, "$top": min(top, 100)}
         raw = self._session.paginate(path, params, headers=headers)
         if top is not None:
             raw = itertools.islice(raw, top)

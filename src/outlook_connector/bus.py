@@ -31,7 +31,7 @@ class EmailReceived(BaseModel):
 
     ``source_mailbox`` is the address of the mailbox that received the mail
     (provenance/routing). ``fetched_at`` is when the connector *observed* the
-    message (the poll-run timestamp), not when the cursor advanced.
+    message (the poll-run timestamp).
     """
 
     source_mailbox: str

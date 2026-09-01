@@ -3,7 +3,6 @@ Main service workflow
 """
 
 import asyncio
-import datetime
 
 import structlog
 from eggai import Channel
@@ -31,14 +30,13 @@ def _record_error(summary: PollSummary, exc: Exception, source: str) -> None:
 
 def build_poller(heartbeat=None):
     settings = get_settings()
-    initial_cursor = settings.initial_cursor or datetime.datetime.now(datetime.UTC)
 
     kwargs = {} if heartbeat is None else {"heartbeat": heartbeat}
     return Poller(
-        cursor=initial_cursor,
         source_folder=settings.source_folder,
         batch_max_messages=settings.batch_max_messages,
         max_attachment_bytes=settings.max_attachment_bytes,
+        ignore_received_before=settings.ignore_received_before,
         **kwargs,
     )
 
@@ -46,8 +44,8 @@ def build_poller(heartbeat=None):
 async def process_message(context, message, *, fetched_at):
     """
     Single message flow: fetch attachment content, wrap in the CloudEvents
-    envelope, publish. Raising aborts the batch with the cursor untouched
-    for this message, so it is retried next cycle — never duplicated.
+    envelope, publish. Raising aborts the batch; the message stays unmarked
+    and still in the folder, so the next rescan retries it.
     """
     logger.debug("Processing message", message=message.id)
     poller = context["poller"]
@@ -69,12 +67,12 @@ async def process_message(context, message, *, fetched_at):
 
 
 async def run_workflow(context) -> PollSummary:
-    """One poll cycle: fetch, publish oldest-first, advance the cursor per
-    successfully published message.
+    """One poll cycle: rescan the folder, publish the oldest unseen batch.
 
-    Bias is "never duplicate, occasionally drop": the first failure stops the
-    batch and leaves the cursor at the last success, so the next cycle resumes
-    from there without re-publishing anything.
+    Delivery is **at least once**: the first failure stops the batch, and the
+    next rescan simply finds the unpublished mail still in the folder. A
+    restart re-publishes everything still present (the seen-set is in-memory
+    only) — consumers must be idempotent, deduping on ``internet_message_id``.
     """
     poller = context["poller"]
     summary = PollSummary()
@@ -104,7 +102,7 @@ async def run_workflow(context) -> PollSummary:
                 error=summary.error,
             )
             break
-        poller.advance(message.received_at)
+        poller.mark_published(message)
         summary.published += 1
 
     logger.info(
@@ -119,6 +117,17 @@ async def run_workflow(context) -> PollSummary:
 
 async def run_service() -> None:
     settings = get_settings()
+    if settings.bus.transport == "kafka" and (
+        settings.max_attachment_bytes is None or settings.max_attachment_bytes > 700_000
+    ):
+        # base64 inflates content 4/3, and kafka's default max_request_size is
+        # 1 MiB — a larger cap means big attachments fail to publish and, under
+        # the stop-batch policy, block everything behind them.
+        logger.warning(
+            "max_attachment_bytes exceeds what kafka's default 1MiB message "
+            "limit can carry; lower the cap or raise the broker/producer limit",
+            max_attachment_bytes=settings.max_attachment_bytes,
+        )
     monitor = HealthMonitor(poll_interval_seconds=settings.poll_interval_seconds)
     # The poller owns the heartbeat: beats fire per fetched message, through
     # retry sleeps, and per published message — so neither a long fetch nor a

@@ -48,17 +48,32 @@ def make_attachment(
 
 
 class FakeClient:
-    """Stands in for outlook_helper.OutlookClient."""
+    """Stands in for outlook_helper.OutlookClient.
+
+    ``search_email`` serves the poller's ids-only folder listing (returning the
+    same message objects as stubs); ``get_email`` serves the per-message full
+    fetch. ``self.messages`` is mutable so tests can simulate mail being moved
+    out of (or back into) the folder between polls.
+    """
 
     def __init__(self, messages=(), attachments=()):
         self.messages = list(messages)
         self.attachments = list(attachments)
         self.search_calls: list[dict] = []
+        self.get_email_calls: list[str] = []
         self.attachment_calls: list[str] = []
 
     def search_email(self, **kwargs):
         self.search_calls.append(kwargs)
-        return list(self.messages)
+        top = kwargs.get("top")
+        return list(self.messages) if top is None else list(self.messages)[:top]
+
+    def get_email(self, message_id, **kwargs):
+        self.get_email_calls.append(message_id)
+        for message in self.messages:
+            if message.id == message_id:
+                return message
+        raise AssertionError(f"get_email for unknown id {message_id!r}")
 
     def get_attachments(self, message_id):
         self.attachment_calls.append(message_id)

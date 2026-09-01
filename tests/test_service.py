@@ -13,8 +13,8 @@ def _at(seconds: int) -> datetime.datetime:
     return T0 + datetime.timedelta(seconds=seconds)
 
 
-def _context(client, channel, cursor=T0):
-    poller = Poller(client=client, cursor=cursor, now=lambda: _at(100))
+def _context(client, channel):
+    poller = Poller(client=client, now=lambda: _at(100))
     return {
         "poller": poller,
         "channel": channel,
@@ -22,7 +22,7 @@ def _context(client, channel, cursor=T0):
     }
 
 
-def test_publishes_envelopes_and_advances_cursor():
+def test_publishes_envelopes_and_marks_published():
     client = FakeClient(
         messages=[
             make_message("m1", received_at=_at(10)),
@@ -41,7 +41,9 @@ def test_publishes_envelopes_and_advances_cursor():
     assert all(e.type == EMAIL_RECEIVED for e in channel.published)
     assert channel.published[1].data.email.attachments[0].file_name == "doc.pdf"
     assert all(e.data.fetched_at == _at(100) for e in channel.published)
-    assert context["poller"].cursor == _at(20)
+    assert context["poller"]._published_ids == {"m1", "m2"}
+    # rescan with everything marked: the next cycle is quiet
+    assert asyncio.run(run_workflow(context)).published == 0
 
 
 def test_publish_failure_stops_batch_at_last_success():
@@ -61,11 +63,11 @@ def test_publish_failure_stops_batch_at_last_success():
     assert "bus down" in summary.error
     assert summary.error_source == "bus"
     assert [e.data.email.id for e in channel.published] == ["m1"]
-    # cursor sits at the last published message: m2 and m3 retry next cycle
-    assert context["poller"].cursor == _at(10)
+    # only the published message is marked: m2 and m3 retry on the next rescan
+    assert context["poller"]._published_ids == {"m1"}
 
 
-def test_graph_error_leaves_cursor_untouched():
+def test_graph_error_publishes_nothing_and_marks_nothing():
     class FailingClient(FakeClient):
         def search_email(self, **kwargs):
             raise httpx.ConnectError("boom")
@@ -79,4 +81,4 @@ def test_graph_error_leaves_cursor_untouched():
     assert "ConnectError" in summary.error
     assert summary.error_source == "graph"
     assert channel.published == []
-    assert context["poller"].cursor == T0
+    assert context["poller"]._published_ids == set()

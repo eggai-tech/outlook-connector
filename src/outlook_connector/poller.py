@@ -18,9 +18,9 @@ from pydantic import BaseModel
 
 from outlook_connector.config import get_settings
 
-# Errors that mean "the Graph call failed" — leave the cursor, try next cycle.
-# The helper already retries 429/503 honoring Retry-After; everything else
-# (other 5xx, network failures) surfaces as one of these.
+# Errors that mean "the Graph call failed" — try again next cycle. The helper
+# already retries 429/503 honoring Retry-After; everything else (other 5xx,
+# network failures) surfaces as one of these.
 GRAPH_ERRORS = (GraphError, httpx.HTTPError)
 
 logger = structlog.getLogger()
@@ -80,65 +80,86 @@ def _build_client(heartbeat: Callable[[], None] = _noop):
 
 
 class Poller:
-    """
-    Mailbox poller.
-    Keeps its own last polled state.
+    """Folder-rescan poller: the source folder itself is the work set.
+
+    Every cycle lists the *whole* folder (ids only — cheap) and fetches the
+    oldest unseen messages in full. There is no cursor and no durable state:
+    a bounded in-memory set of already-published ids suppresses re-fetching
+    within a process lifetime, and is pruned to the ids still present in the
+    folder, so it can never grow past the folder size. A restart empties the
+    set and everything still in the folder is published again — delivery is
+    **at least once**, and consumers must be idempotent (dedupe on
+    ``internet_message_id``).
 
     All methods call the synchronous outlook-helper client; the service wraps
     them in ``asyncio.to_thread`` so a blocking request or ``Retry-After``
     sleep never stalls the event loop. The poller owns the health heartbeat
-    precisely because the work happens in threads: it beats per fetched
-    message (covering pagination) and through retry sleeps, so a long fetch
-    never reads as a wedged loop.
+    precisely because the work happens in threads: it beats per listed and
+    per fetched message and through retry sleeps, so a long rescan never
+    reads as a wedged loop.
     """
 
     def __init__(
         self,
         *,
         client: OutlookClient | None = None,
-        cursor: datetime.datetime | None = None,
         now: Callable[[], datetime.datetime] = _utcnow,
         source_folder: str = "inbox",
         batch_max_messages: int | None = None,
         max_attachment_bytes: int | None = None,
+        ignore_received_before: datetime.datetime | None = None,
         heartbeat: Callable[[], None] = _noop,
     ):
         self.heartbeat = heartbeat
         self.client = (
             _build_client(heartbeat) if client is None else client
         )  # can inject client for testing
-        self.cursor = cursor if cursor is not None else now()
         self.now = now
         self.source_folder = source_folder
         self.batch_max_messages = batch_max_messages
         self.max_attachment_bytes = max_attachment_bytes
+        self.ignore_received_before = ignore_received_before
+        # Ids published this process lifetime that are still in the folder.
+        self._published_ids: set[str] = set()
 
     def poll_mailbox(self) -> list[OutlookMessage]:
-        """Fetch messages received strictly after the cursor, oldest first,
-        at most ``batch_max_messages`` per cycle.
+        """One rescan: list the folder, fetch the oldest unseen batch in full.
 
-        The Graph query orders ascending so the bound takes the *oldest* N —
-        with max-seen cursor advancement, taking the newest N would skip the
-        backlog behind them permanently.
-
-        Graph/transport errors propagate to the caller, which owns the
-        error policy (log, leave the cursor, retry next cycle).
+        Graph/transport errors propagate to the caller, which owns the error
+        policy (log, retry next cycle — nothing is lost, the folder still
+        holds the mail).
         """
+        listed: list[OutlookMessage] = []
+        for stub in self.client.search_email(
+            folder=self.source_folder,
+            since=self.ignore_received_before,
+            oldest_first=True,
+            ids_only=True,
+        ):
+            listed.append(stub)
+            self.heartbeat()  # per listed message: pagination counts as progress
+
+        # The listing is the truth: mail moved out of the folder needs no
+        # memory (and if a human moves it back, it re-publishes and the
+        # consumer dedupes). This also bounds the set by the folder size.
+        self._published_ids &= {m.id for m in listed}
+
+        unseen = [m for m in listed if m.id not in self._published_ids]
+        unseen.sort(key=lambda m: (m.received_at is not None, m.received_at))
+        if self.batch_max_messages is not None:
+            unseen = unseen[: self.batch_max_messages]
+
         messages = []
-        for message in self._fetch_message(self.cursor):
-            messages.append(message)
-            self.heartbeat()  # per fetched message: pagination counts as progress
-        messages.sort(key=lambda m: (m.received_at is not None, m.received_at))
+        for stub in unseen:
+            messages.append(
+                self.client.get_email(stub.id, include_headers=True, html_body=True)
+            )
+            self.heartbeat()
         return messages
 
-    def advance(self, received_at: datetime.datetime | None) -> None:
-        """Move the cursor forward to a successfully published message.
-
-        Only ever advances (max-seen), so an out-of-order timestamp can never
-        pull the cursor back and cause a re-publish.
-        """
-        if received_at is not None and received_at > self.cursor:
-            self.cursor = received_at
+    def mark_published(self, message: OutlookMessage) -> None:
+        """Record a successfully published message so rescans skip it."""
+        self._published_ids.add(message.id)
 
     def fetch_attachments(self, message: OutlookMessage) -> list[OutlookAttachment]:
         """Fetch per-attachment metadata + content, only for attachment-bearing mail.
@@ -167,13 +188,3 @@ class Poller:
             cap=cap,
         )
         return attachment.model_copy(update={"content": None})
-
-    def _fetch_message(self, cursor):
-        return self.client.search_email(
-            folder=self.source_folder,
-            since_exclusive=cursor,  # strict >, sub-second precise
-            top=self.batch_max_messages,
-            oldest_first=True,  # bound takes the oldest N (see poll_mailbox)
-            include_headers=True,  # internet_message_id + In-Reply-To/References
-            html_body=True,  # body guaranteed HTML
-        )

@@ -137,7 +137,7 @@ class HealthMonitor:
         whether a cycle has *completed*: an unbounded first backfill can
         legitimately publish for longer than the staleness window, and a 503
         there would let a liveness probe kill a healthy connector mid-drain —
-        re-seeding the in-memory cursor on restart and starting over forever.
+        restarting the drain from scratch on every kill, forever.
         """
         with self._lock:
             self._last_beat = self._now()
