@@ -191,8 +191,7 @@ async def test_start_health_server_binds_and_cleans_up():
     monitor, _ = make_monitor()
     runner = await start_health_server(monitor, port=0)  # ephemeral port
     try:
-        site = next(iter(runner.sites))
-        port = site._server.sockets[0].getsockname()[1]  # noqa: SLF001
+        port = runner.addresses[0][1]
         response = await asyncio.to_thread(
             urllib.request.urlopen, f"http://localhost:{port}/health", None, 5
         )
@@ -200,3 +199,21 @@ async def test_start_health_server_binds_and_cleans_up():
             assert response.status == 200
     finally:
         await runner.cleanup()
+
+
+async def test_fetch_pagination_beats_prevent_false_stale():
+    """A long fetch must not read as a wedged loop: the poller beats per
+    fetched message (and through retry sleeps), so an unbounded backfill
+    fetch keeps the probe green even before the first cycle completes."""
+    from conftest import FakeClient, make_message
+
+    from outlook_connector.poller import Poller
+
+    monitor, clock = make_monitor(poll_interval_seconds=60)
+    client = FakeClient(messages=[make_message(f"m{i}") for i in range(3)])
+    poller = Poller(client=client, cursor=T0, heartbeat=monitor.beat)
+
+    clock.advance(500)  # way past the staleness window mid-"fetch"
+    poller.poll_mailbox()  # beats fire per message during listing
+
+    assert monitor.snapshot().status == "starting"  # alive, not stale

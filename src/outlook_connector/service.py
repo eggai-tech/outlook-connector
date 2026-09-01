@@ -8,6 +8,8 @@ import datetime
 import structlog
 from eggai import Channel
 
+from outlook_helper import GraphError
+
 from outlook_connector.bus import build_bus_event, build_transport
 from outlook_connector.config import get_settings
 from outlook_connector.health import HealthMonitor, start_health_server
@@ -20,21 +22,24 @@ logger = structlog.get_logger()
 def _record_error(summary: PollSummary, exc: Exception, source: str) -> None:
     summary.error = f"{type(exc).__name__}: {exc}"
     summary.error_class = type(exc).__name__
-    # GraphError carries the HTTP status; transport errors don't.
-    status = getattr(exc, "status_code", None)
-    summary.error_status = status if isinstance(status, int) else None
+    # Only GraphError's status is meaningful here; duck-typing status_code off
+    # arbitrary bus/storage exceptions would fabricate Graph-style statuses in
+    # the public health payload.
+    summary.error_status = exc.status_code if isinstance(exc, GraphError) else None
     summary.error_source = source
 
 
-def build_poller():
+def build_poller(heartbeat=None):
     settings = get_settings()
     initial_cursor = settings.initial_cursor or datetime.datetime.now(datetime.UTC)
 
+    kwargs = {} if heartbeat is None else {"heartbeat": heartbeat}
     return Poller(
         cursor=initial_cursor,
         source_folder=settings.source_folder,
         batch_max_messages=settings.batch_max_messages,
         max_attachment_bytes=settings.max_attachment_bytes,
+        **kwargs,
     )
 
 
@@ -72,9 +77,6 @@ async def run_workflow(context) -> PollSummary:
     from there without re-publishing anything.
     """
     poller = context["poller"]
-    # Intra-cycle liveness for the health monitor: a long backfill cycle must
-    # not read as a wedged loop while it is visibly making progress.
-    heartbeat = context.get("heartbeat") or (lambda: None)
     summary = PollSummary()
 
     try:
@@ -84,14 +86,14 @@ async def run_workflow(context) -> PollSummary:
         logger.warning("Poll fetch failed", error=summary.error)
         return summary
 
-    heartbeat()
     summary.fetched = len(messages)
     fetched_at = poller.now()
 
     for index, message in enumerate(messages):
         try:
             await process_message(context, message, fetched_at=fetched_at)
-            heartbeat()
+            # intra-cycle liveness: a long publish drain is progress, not a wedge
+            poller.heartbeat()
         except Exception as exc:
             # attachment fetch raises a Graph error; anything else is the bus
             _record_error(summary, exc, "graph" if isinstance(exc, GRAPH_ERRORS) else "bus")
@@ -117,7 +119,11 @@ async def run_workflow(context) -> PollSummary:
 
 async def run_service() -> None:
     settings = get_settings()
-    poller = build_poller()
+    monitor = HealthMonitor(poll_interval_seconds=settings.poll_interval_seconds)
+    # The poller owns the heartbeat: beats fire per fetched message, through
+    # retry sleeps, and per published message — so neither a long fetch nor a
+    # long publish drain reads as a wedged loop.
+    poller = build_poller(heartbeat=monitor.beat)
     transport = build_transport(settings.bus)
     channel = Channel(settings.bus.channel, transport=transport)
 
@@ -127,8 +133,6 @@ async def run_service() -> None:
         "source_mailbox": settings.mailbox,
     }
 
-    monitor = HealthMonitor(poll_interval_seconds=settings.poll_interval_seconds)
-    context["heartbeat"] = monitor.beat
     runner = None
     if settings.health_port is not None:
         runner = await start_health_server(monitor, settings.health_port)

@@ -104,8 +104,10 @@ class HealthSnapshot(BaseModel):
 class HealthMonitor:
     """Aggregates poll-cycle outcomes into a point-in-time health snapshot.
 
-    ``record_cycle`` runs on the event loop thread, ``snapshot`` on HTTP
-    server threads — hence the lock.
+    ``record_cycle`` and ``snapshot`` run on the event loop thread (the HTTP
+    handlers share the loop), but ``beat`` is called from the poller's
+    ``asyncio.to_thread`` workers — per fetched message and inside retry
+    sleeps — hence the lock.
     """
 
     def __init__(
@@ -212,8 +214,14 @@ async def start_health_server(monitor: HealthMonitor, port: int) -> web.AppRunne
     """
     runner = web.AppRunner(build_app(monitor), access_log=None)
     await runner.setup()
-    site = web.TCPSite(runner, "0.0.0.0", port)
-    await site.start()
-    bound = site._server.sockets[0].getsockname()[1]  # noqa: SLF001 (real port when port=0 in tests)
+    try:
+        site = web.TCPSite(runner, "0.0.0.0", port)
+        await site.start()
+    except BaseException:
+        # e.g. EADDRINUSE: setup() already ran its startup hooks — unwind them
+        # instead of leaking the runner.
+        await runner.cleanup()
+        raise
+    bound = runner.addresses[0][1]
     logger.info("Health endpoint listening", port=bound)
     return runner
