@@ -65,13 +65,15 @@ def test_list_messages_default_inbox_orders_newest_first():
 
 @respx.mock
 def test_list_messages_top_caps_results():
-    respx.get(f"{BASE}/me/mailFolders/inbox/messages").mock(
+    route = respx.get(f"{BASE}/me/mailFolders/inbox/messages").mock(
         return_value=httpx.Response(
             200, json={"value": [{"id": "1"}, {"id": "2"}, {"id": "3"}]}
         )
     )
     msgs = list(make_client().list_messages(top=2))
     assert [m.id for m in msgs] == ["1", "2"]
+    # $top rides to Graph as the page size so a bounded read is one round trip
+    assert route.calls.last.request.url.params["$top"] == "2"
 
 
 @respx.mock

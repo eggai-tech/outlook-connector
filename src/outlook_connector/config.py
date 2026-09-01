@@ -12,10 +12,10 @@ Validation is strict so startup can fail quickly.
 
 from functools import lru_cache
 import os
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from pydantic_settings import (
     BaseSettings,
     PydanticBaseSettingsSource,
@@ -68,6 +68,20 @@ class Settings(BaseSettings):
     # starts at process-start "now" so only mail received after startup is
     # bridged. Set this to backfill from a known point in time instead.
     initial_cursor: datetime | None = None
+
+    @field_validator("initial_cursor")
+    @classmethod
+    def _cursor_must_be_aware(cls, value: datetime | None) -> datetime | None:
+        """Coerce a naive timestamp to UTC.
+
+        Graph returns timezone-aware datetimes; comparing them against a naive
+        cursor raises TypeError on the first advance — a crash-restart loop,
+        since the cursor re-seeds to the same naive value. A bare ISO string
+        like "2026-06-26T08:00:00" is treated as UTC.
+        """
+        if value is not None and value.tzinfo is None:
+            return value.replace(tzinfo=UTC)
+        return value
     log_level: str = "INFO"
     bus: BusConfig = Field(default_factory=BusConfig)
 

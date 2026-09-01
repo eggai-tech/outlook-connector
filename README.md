@@ -50,7 +50,8 @@ natural dedup key for consumers), `from_addresses`, `to_addresses`, `subject`,
 `received_at`, `body_html`/`body_text`, `has_attachments`,
 `attachments[{file_name, content_type, size, body}]` (`body` is base64 on the
 wire, and `null` when content is withheld — size cap or item/reference
-attachment). Mind the broker's message-size limit when raising
+attachment), and `mime_content` (the full `.eml` when requested; always `null`
+on the polling path today). Mind the broker's message-size limit when raising
 `max_attachment_bytes`: kafka defaults to ~1MB per message. Models live in
 [`src/outlook_connector/schemas.py`](src/outlook_connector/schemas.py) and
 [`bus.py`](src/outlook_connector/bus.py).

@@ -101,6 +101,17 @@ async def run_workflow(context) -> PollSummary:
 
 async def run_service() -> None:
     settings = get_settings()
+    if settings.bus.transport == "kafka" and (
+        settings.max_attachment_bytes is None or settings.max_attachment_bytes > 700_000
+    ):
+        # base64 inflates content 4/3, and kafka's default max_request_size is
+        # 1 MiB — a larger cap means big attachments fail to publish and, under
+        # the stop-batch policy, block everything behind them.
+        logger.warning(
+            "max_attachment_bytes exceeds what kafka's default 1MiB message "
+            "limit can carry; lower the cap or raise the broker/producer limit",
+            max_attachment_bytes=settings.max_attachment_bytes,
+        )
     poller = build_poller()
     transport = build_transport(settings.bus)
     channel = Channel(settings.bus.channel, transport=transport)
