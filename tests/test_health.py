@@ -24,12 +24,7 @@ class Clock:
 
 def make_monitor(poll_interval_seconds: float = 60.0) -> tuple[HealthMonitor, Clock]:
     clock = Clock()
-    monitor = HealthMonitor(
-        mailbox="inbox@example.com",
-        source_folder="inbox",
-        poll_interval_seconds=poll_interval_seconds,
-        now=clock,
-    )
+    monitor = HealthMonitor(poll_interval_seconds=poll_interval_seconds, now=clock)
     return monitor, clock
 
 
@@ -74,13 +69,22 @@ def test_empty_cycle_leaves_bus_unexercised():
 def test_graph_error_is_attributed_to_graph():
     monitor, clock = make_monitor()
 
-    monitor.record_cycle(PollSummary(error="ConnectError: boom", error_source="graph"))
+    monitor.record_cycle(
+        PollSummary(
+            error="GraphError: [503] server said no to inbox@example.com",
+            error_class="GraphError",
+            error_status=503,
+            error_source="graph",
+        )
+    )
     snapshot = monitor.snapshot()
 
     assert snapshot.status == "degraded"
     assert snapshot.last_successful_cycle_at is None
     assert snapshot.graph.status == "error"
-    assert snapshot.graph.last_error == "ConnectError: boom"
+    # identity-free: class + status only, never the full error text
+    assert snapshot.graph.last_error == "GraphError [503]"
+    assert snapshot.last_cycle.error == "GraphError [503]"
     assert snapshot.graph.last_error_at == clock.now
     assert snapshot.bus.status == "unknown"
 
@@ -90,7 +94,12 @@ def test_bus_error_is_attributed_to_bus():
 
     monitor.record_cycle(
         PollSummary(
-            fetched=3, published=1, dropped=2, error="bus down", error_source="bus"
+            fetched=3,
+            published=1,
+            dropped=2,
+            error="RuntimeError: bus down at redis://internal-host/0",
+            error_class="RuntimeError",
+            error_source="bus",
         )
     )
     snapshot = monitor.snapshot()
@@ -99,20 +108,22 @@ def test_bus_error_is_attributed_to_bus():
     # the fetch worked, so Graph is fine even though the cycle errored
     assert snapshot.graph.status == "ok"
     assert snapshot.bus.status == "error"
-    assert snapshot.bus.last_error == "bus down"
+    assert snapshot.bus.last_error == "RuntimeError"
 
 
 def test_recovery_clears_degraded_but_keeps_error_history():
     monitor, clock = make_monitor()
 
-    monitor.record_cycle(PollSummary(error="boom", error_source="graph"))
+    monitor.record_cycle(
+        PollSummary(error="boom", error_class="RuntimeError", error_source="graph")
+    )
     clock.advance(60)
     monitor.record_cycle(PollSummary(fetched=1, published=1))
     snapshot = monitor.snapshot()
 
     assert snapshot.status == "ok"
     assert snapshot.graph.status == "ok"
-    assert snapshot.graph.last_error == "boom"  # kept for forensics
+    assert snapshot.graph.last_error == "RuntimeError"  # kept for forensics
 
 
 def test_wedged_loop_goes_stale():
@@ -147,8 +158,10 @@ def test_http_endpoint_serves_snapshot():
             assert response.status == 200
             payload = json.loads(response.read())
         assert payload["status"] == "ok"
-        assert payload["mailbox"] == "inbox@example.com"
         assert payload["last_cycle"]["published"] == 1
+        # unauthenticated endpoint: no identity in the payload
+        assert "mailbox" not in payload
+        assert "source_folder" not in payload
 
         try:
             _get(server.port, "/nope")

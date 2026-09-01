@@ -9,6 +9,11 @@ long as the poll loop is alive and ticking — even while Graph or the bus is
 erroring, because restarting the connector cannot fix an external outage (the
 body still reports the errors) — and 503 only once the loop itself is wedged:
 no completed cycle within the staleness window.
+
+The endpoint is unauthenticated, so the payload deliberately carries no
+identity: no mailbox address, no folder name, and errors reduced to exception
+class + Graph HTTP status (full error text — which can embed mailbox addresses
+and URLs — stays in the logs). Expose the port to internal networks only.
 """
 
 import datetime
@@ -49,18 +54,44 @@ class ProbeStatus(BaseModel):
         )
 
 
+class CycleStats(BaseModel):
+    """Identity-free view of a :class:`PollSummary` for the public payload."""
+
+    fetched: int
+    published: int
+    dropped: int
+    error: str | None  # exception class + Graph status, never the full text
+    error_source: Literal["graph", "bus"] | None
+
+
+def _public_error(summary: PollSummary) -> str | None:
+    if summary.error_class is None:
+        return None
+    if summary.error_status is not None:
+        return f"{summary.error_class} [{summary.error_status}]"
+    return summary.error_class
+
+
+def _cycle_stats(summary: PollSummary) -> CycleStats:
+    return CycleStats(
+        fetched=summary.fetched,
+        published=summary.published,
+        dropped=summary.dropped,
+        error=_public_error(summary),
+        error_source=summary.error_source,
+    )
+
+
 class HealthSnapshot(BaseModel):
     """The ``GET /health`` response body."""
 
     status: Literal["starting", "ok", "degraded", "stale"]
     started_at: datetime.datetime
     uptime_seconds: float
-    mailbox: str
-    source_folder: str
     poll_interval_seconds: float
     last_cycle_completed_at: datetime.datetime | None
     last_successful_cycle_at: datetime.datetime | None
-    last_cycle: PollSummary | None
+    last_cycle: CycleStats | None
     graph: ProbeStatus
     bus: ProbeStatus
 
@@ -75,15 +106,11 @@ class HealthMonitor:
     def __init__(
         self,
         *,
-        mailbox: str,
-        source_folder: str,
         poll_interval_seconds: float,
         now=_utcnow,
     ):
         self._now = now
         self._lock = threading.Lock()
-        self._mailbox = mailbox
-        self._source_folder = source_folder
         self._poll_interval_seconds = poll_interval_seconds
         self._started_at = now()
         self._last_cycle: PollSummary | None = None
@@ -106,12 +133,12 @@ class HealthMonitor:
             # fetched) or succeeded; mid-batch attachment failures also count
             # against Graph.
             if summary.error_source == "graph":
-                self._graph = self._graph.failed(summary.error, at)
+                self._graph = self._graph.failed(_public_error(summary), at)
             else:
                 self._graph = self._graph.succeeded(at)
             # The bus is only exercised when there was something to publish.
             if summary.error_source == "bus":
-                self._bus = self._bus.failed(summary.error, at)
+                self._bus = self._bus.failed(_public_error(summary), at)
             elif summary.published > 0:
                 self._bus = self._bus.succeeded(at)
 
@@ -131,12 +158,12 @@ class HealthMonitor:
                 status=status,
                 started_at=self._started_at,
                 uptime_seconds=(now - self._started_at).total_seconds(),
-                mailbox=self._mailbox,
-                source_folder=self._source_folder,
                 poll_interval_seconds=self._poll_interval_seconds,
                 last_cycle_completed_at=self._last_cycle_at,
                 last_successful_cycle_at=self._last_success_at,
-                last_cycle=self._last_cycle,
+                last_cycle=(
+                    _cycle_stats(self._last_cycle) if self._last_cycle is not None else None
+                ),
                 graph=self._graph,
                 bus=self._bus,
             )

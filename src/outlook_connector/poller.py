@@ -31,7 +31,12 @@ class PollSummary(BaseModel):
     published: int = 0
     # emails skipped because publishing (or attachment fetch) failed mid-batch
     dropped: int = 0
+    # full error text — logs only: Graph errors embed mailbox addresses and
+    # URLs, so this never leaves the process via the health endpoint
     error: str | None = None
+    # the identity-free form the unauthenticated health endpoint may expose
+    error_class: str | None = None
+    error_status: int | None = None  # Graph HTTP status, when there is one
     # which dependency the error came from: the Graph API or the bus publish
     error_source: Literal["graph", "bus"] | None = None
 

@@ -17,6 +17,15 @@ from outlook_connector.storage import save_to_storage
 logger = structlog.get_logger()
 
 
+def _record_error(summary: PollSummary, exc: Exception, source: str) -> None:
+    summary.error = f"{type(exc).__name__}: {exc}"
+    summary.error_class = type(exc).__name__
+    # GraphError carries the HTTP status; transport errors don't.
+    status = getattr(exc, "status_code", None)
+    summary.error_status = status if isinstance(status, int) else None
+    summary.error_source = source
+
+
 def build_poller():
     settings = get_settings()
     initial_cursor = settings.initial_cursor or datetime.datetime.now(datetime.UTC)
@@ -68,8 +77,7 @@ async def run_workflow(context) -> PollSummary:
     try:
         messages = await asyncio.to_thread(poller.poll_mailbox)
     except GRAPH_ERRORS as exc:
-        summary.error = f"{type(exc).__name__}: {exc}"
-        summary.error_source = "graph"
+        _record_error(summary, exc, "graph")
         logger.warning("Poll fetch failed", error=summary.error)
         return summary
 
@@ -80,9 +88,8 @@ async def run_workflow(context) -> PollSummary:
         try:
             await process_message(context, message, fetched_at=fetched_at)
         except Exception as exc:
-            summary.error = f"{type(exc).__name__}: {exc}"
             # attachment fetch raises a Graph error; anything else is the bus
-            summary.error_source = "graph" if isinstance(exc, GRAPH_ERRORS) else "bus"
+            _record_error(summary, exc, "graph" if isinstance(exc, GRAPH_ERRORS) else "bus")
             summary.dropped = summary.fetched - index
             logger.warning(
                 "Publish failed; stopping batch until next cycle",
@@ -115,11 +122,7 @@ async def run_service() -> None:
         "source_mailbox": settings.mailbox,
     }
 
-    monitor = HealthMonitor(
-        mailbox=settings.mailbox,
-        source_folder=settings.source_folder,
-        poll_interval_seconds=settings.poll_interval_seconds,
-    )
+    monitor = HealthMonitor(poll_interval_seconds=settings.poll_interval_seconds)
     if settings.health_port is not None:
         start_health_server(monitor, settings.health_port)
 

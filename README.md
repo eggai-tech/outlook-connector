@@ -125,8 +125,6 @@ curl -s localhost:38000/health   # 38000 is the compose host mapping
   "status": "ok",
   "started_at": "2026-08-31T12:00:00Z",
   "uptime_seconds": 3600.0,
-  "mailbox": "inbox@example.com",
-  "source_folder": "inbox",
   "poll_interval_seconds": 60.0,
   "last_cycle_completed_at": "2026-08-31T13:00:00Z",
   "last_successful_cycle_at": "2026-08-31T13:00:00Z",
@@ -143,6 +141,13 @@ stays **200** for everything except `stale`, which returns **503** — a Graph o
 bus outage is visible in the body but does not fail the probe, because
 restarting the connector cannot fix an external dependency. The compose file
 wires this into a Docker healthcheck.
+
+The endpoint is **unauthenticated**, so the payload deliberately carries no
+identity: no mailbox address, no folder name, and errors are reduced to
+exception class plus Graph HTTP status (e.g. `"GraphError [503]"`) — full
+error text, which can embed mailbox addresses and URLs, goes to the logs only.
+Even so, expose the port to internal networks exclusively; remember that a
+Docker `ports:` mapping bypasses host firewall INPUT rules.
 
 ## The outlook-helper library
 
