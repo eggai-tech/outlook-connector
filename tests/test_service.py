@@ -59,6 +59,7 @@ def test_publish_failure_stops_batch_at_last_success():
 
     assert (summary.fetched, summary.published, summary.dropped) == (3, 1, 2)
     assert "bus down" in summary.error
+    assert summary.error_source == "bus"
     assert [e.data.email.id for e in channel.published] == ["m1"]
     # cursor sits at the last published message: m2 and m3 retry next cycle
     assert context["poller"].cursor == _at(10)
@@ -76,5 +77,6 @@ def test_graph_error_leaves_cursor_untouched():
 
     assert summary.fetched == 0
     assert "ConnectError" in summary.error
+    assert summary.error_source == "graph"
     assert channel.published == []
     assert context["poller"].cursor == T0

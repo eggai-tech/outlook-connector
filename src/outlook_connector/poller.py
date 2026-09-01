@@ -1,5 +1,7 @@
 import datetime
+import time
 from collections.abc import Callable
+from typing import Literal
 
 import httpx
 import structlog
@@ -11,6 +13,7 @@ from outlook_helper import (
     OutlookClient,
     OutlookMessage,
 )
+from outlook_helper.http import GraphSession
 from pydantic import BaseModel
 
 from outlook_connector.config import get_settings
@@ -30,14 +33,40 @@ class PollSummary(BaseModel):
     published: int = 0
     # emails skipped because publishing (or attachment fetch) failed mid-batch
     dropped: int = 0
+    # full error text — logs only: Graph errors embed mailbox addresses and
+    # URLs, so this never leaves the process via the health endpoint
     error: str | None = None
+    # the identity-free form the unauthenticated health endpoint may expose
+    error_class: str | None = None
+    error_status: int | None = None  # Graph HTTP status, when there is one
+    # which dependency the error came from: the Graph API or the bus publish
+    error_source: Literal["graph", "bus"] | None = None
 
 
 def _utcnow() -> datetime.datetime:
     return datetime.datetime.now(datetime.UTC)
 
 
-def _build_client():
+def _noop() -> None:
+    return None
+
+
+def _beating_sleep(seconds: float, heartbeat: Callable[[], None]) -> None:
+    """Sleep in chunks, beating between them.
+
+    The helper honors ``Retry-After`` with an in-thread sleep; without beats a
+    long backoff would read as a wedged poller and trip the staleness 503.
+    """
+    deadline = time.monotonic() + seconds
+    while True:
+        heartbeat()
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            return
+        time.sleep(min(remaining, 10.0))
+
+
+def _build_client(heartbeat: Callable[[], None] = _noop):
     settings = get_settings()
     credential = ClientSecretCredential(
         AppOnlyConfig(
@@ -46,7 +75,8 @@ def _build_client():
             client_secret=settings.azure_client_secret,
         )
     )
-    return OutlookClient(credential, settings.mailbox)
+    session = GraphSession(credential, sleep=lambda s: _beating_sleep(s, heartbeat))
+    return OutlookClient(credential, settings.mailbox, session=session)
 
 
 class Poller:
@@ -56,7 +86,10 @@ class Poller:
 
     All methods call the synchronous outlook-helper client; the service wraps
     them in ``asyncio.to_thread`` so a blocking request or ``Retry-After``
-    sleep never stalls the event loop.
+    sleep never stalls the event loop. The poller owns the health heartbeat
+    precisely because the work happens in threads: it beats per fetched
+    message (covering pagination) and through retry sleeps, so a long fetch
+    never reads as a wedged loop.
     """
 
     def __init__(
@@ -68,9 +101,11 @@ class Poller:
         source_folder: str = "inbox",
         batch_max_messages: int | None = None,
         max_attachment_bytes: int | None = None,
+        heartbeat: Callable[[], None] = _noop,
     ):
+        self.heartbeat = heartbeat
         self.client = (
-            _build_client() if client is None else client
+            _build_client(heartbeat) if client is None else client
         )  # can inject client for testing
         self.cursor = cursor if cursor is not None else now()
         self.now = now
@@ -89,7 +124,10 @@ class Poller:
         Graph/transport errors propagate to the caller, which owns the
         error policy (log, leave the cursor, retry next cycle).
         """
-        messages = list(self._fetch_message(self.cursor))
+        messages = []
+        for message in self._fetch_message(self.cursor):
+            messages.append(message)
+            self.heartbeat()  # per fetched message: pagination counts as progress
         messages.sort(key=lambda m: (m.received_at is not None, m.received_at))
         return messages
 

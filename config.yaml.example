@@ -28,6 +28,11 @@ poll_interval_seconds: 60
 # Leave commented to start from "now".
 # initial_cursor: 2026-06-26T08:00:00Z
 
+# HTTP health/status endpoint: GET /health reports uptime, Graph/bus status
+# and the last poll cycle. 200 while the poll loop ticks, 503 once it is
+# wedged. Default 8000; set to null to disable.
+# health_port: 8000
+
 # Log level (stdlib logging name): DEBUG | INFO | WARNING | ERROR.
 log_level: INFO
 

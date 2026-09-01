@@ -8,6 +8,7 @@ license-files = ["LICENSE"]
 authors = [{ name = "EggAI Technologies" }]
 requires-python = ">=3.13"
 dependencies = [
+    "aiohttp>=3.10",
     "eggai>=0.3.2",
     "outlook-helper>=0.4.0",
     "pydantic-settings[yaml]>=2.0",
@@ -39,8 +40,10 @@ outlook-helper = { workspace = true }
 [dependency-groups]
 dev = [
     "pytest>=9.1.1",
+    "pytest-asyncio>=0.24",
     "respx>=0.21",
 ]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+asyncio_mode = "auto"
