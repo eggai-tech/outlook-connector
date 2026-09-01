@@ -58,7 +58,8 @@ class FakeClient:
 
     def search_email(self, **kwargs):
         self.search_calls.append(kwargs)
-        return list(self.messages)
+        top = kwargs.get("top")
+        return list(self.messages) if top is None else list(self.messages)[:top]
 
     def get_attachments(self, message_id):
         self.attachment_calls.append(message_id)

@@ -74,15 +74,15 @@ def test_advance_is_monotonic():
     assert poller.cursor == _at(30)
 
 
-def test_published_messages_are_not_refetched_and_boundary_bumps():
+def test_published_messages_are_not_refetched_and_boundary_bumps_when_aged():
     """Graph truncates receivedDateTime to seconds in responses but filters on
     its finer stored value, so `gt <cursor>` keeps matching the newest message
     — observed live as an infinite republish every cycle. Published ids are
-    filtered out, and a window of only-already-published mail bumps the cursor
-    past the truncated second."""
+    filtered out; once the boundary second is comfortably old, the cursor is
+    bumped past it."""
     message = make_message("m1", received_at=_at(10))
     client = FakeClient(messages=[message])
-    poller = Poller(client=client, cursor=T0)
+    poller = Poller(client=client, cursor=T0, now=lambda: _at(600))  # boundary long past
 
     first = poller.poll_mailbox()
     assert [m.id for m in first] == ["m1"]
@@ -97,6 +97,53 @@ def test_published_messages_are_not_refetched_and_boundary_bumps():
     third_call_cursor_before = poller.cursor
     poller.poll_mailbox()
     assert client.search_calls[2]["since_exclusive"] == third_call_cursor_before
+
+
+def test_no_bump_while_boundary_second_is_recent():
+    """Mail can be stamped in a second and become visible to listings tens of
+    seconds later; bumping early would exclude it forever. While the boundary
+    is fresh, the id filter keeps cycles quiet and the cursor stays put."""
+    message = make_message("m1", received_at=_at(10))
+    client = FakeClient(messages=[message])
+    poller = Poller(client=client, cursor=T0, now=lambda: _at(40))  # 30s after receipt
+
+    poller.poll_mailbox()
+    poller.advance(message)
+    assert poller.poll_mailbox() == []
+    assert poller.cursor == _at(10)  # NOT bumped: late-visible siblings still possible
+
+
+def test_truncated_all_published_window_does_not_bump_or_starve():
+    """A boundary cohort larger than batch_max must neither trigger the bump
+    (never-fetched siblings would be lost) nor starve behind the bound (Graph
+    would return the same first N already-published ids forever)."""
+    cohort = [make_message(f"m{i}", received_at=_at(10)) for i in range(3)]
+    client = FakeClient(messages=cohort)
+    poller = Poller(
+        client=client, cursor=T0, batch_max_messages=2, now=lambda: _at(600)
+    )
+
+    for message in poller.poll_mailbox():  # m0, m1 (bounded window)
+        poller.advance(message)
+
+    second = poller.poll_mailbox()
+    # bounded window held only published ids -> one unbounded look finds m2
+    assert [m.id for m in second] == ["m2"]
+    assert client.search_calls[-1]["top"] is None
+    assert poller.cursor == _at(10)  # no bump while m2 is unpublished
+
+
+def test_published_ids_evicted_once_cursor_passes():
+    early = make_message("early", received_at=_at(10))
+    late = make_message("late", received_at=_at(300))
+    poller = Poller(client=FakeClient(), cursor=T0)
+
+    poller.advance(early)
+    poller.advance(late)
+
+    # cursor is far past early's second: remembering it buys nothing
+    assert "early" not in poller._published_ids
+    assert "late" in poller._published_ids
 
 
 def test_fetch_attachments_gated_on_flag():
