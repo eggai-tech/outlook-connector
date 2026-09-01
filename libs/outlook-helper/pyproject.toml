@@ -3,6 +3,9 @@ name = "outlook-helper"
 version = "0.4.0"
 description = "A Python library for working with M365 email through the Microsoft Graph API"
 readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [{ name = "EggAI Technologies" }]
 requires-python = ">=3.13"
 dependencies = [
     "httpx>=0.27",

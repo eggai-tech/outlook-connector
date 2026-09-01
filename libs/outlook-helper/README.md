@@ -33,14 +33,14 @@ With uv:
 dependencies = ["outlook-helper>=0.4.0"]
 
 [tool.uv.sources]
-outlook-helper = { git = "ssh://git@github.com/eggai-tech/outlook-connector.git",
+outlook-helper = { git = "https://github.com/eggai-tech/outlook-connector.git",
                    tag = "outlook-helper-v0.4.0", subdirectory = "libs/outlook-helper" }
 ```
 
 With pip:
 
 ```bash
-pip install "outlook-helper @ git+ssh://git@github.com/eggai-tech/outlook-connector.git@outlook-helper-v0.4.0#subdirectory=libs/outlook-helper"
+pip install "outlook-helper @ git+https://github.com/eggai-tech/outlook-connector.git@outlook-helper-v0.4.0#subdirectory=libs/outlook-helper"
 ```
 
 Releases of this library are tagged `outlook-helper-v*`, separately from the

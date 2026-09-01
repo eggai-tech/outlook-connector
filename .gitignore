@@ -12,6 +12,5 @@ wheels/
 .DS_Store
 
 config*.yaml
-scripts
 
 __local # local untracked files

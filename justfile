@@ -102,7 +102,7 @@ dev: init sync
 
 # Run the connector on the host against the compose redis (needs `just up`).
 run:
-    BUS__TRANSPORT=redis BUS__BROKER_URL=redis://localhost:${REDIS_HOST_PORT:-16379}/0 uv run outlook-connector
+    BUS__TRANSPORT=redis BUS__BROKER_URL=redis://localhost:${REDIS_HOST_PORT:-36379}/0 uv run outlook-connector
 
 # --- prerequisites -----------------------------------------------------------
 

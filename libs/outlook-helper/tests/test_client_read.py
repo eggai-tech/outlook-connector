@@ -106,6 +106,15 @@ def test_search_email_builds_filter():
     assert " and " in flt
 
 
+@respx.mock
+def test_search_email_oldest_first_orders_ascending():
+    route = respx.get(f"{BASE}/me/messages").mock(
+        return_value=httpx.Response(200, json={"value": [{"id": "1"}]})
+    )
+    list(make_client().search_email(oldest_first=True))
+    assert route.calls.last.request.url.params["$orderby"] == "receivedDateTime asc"
+
+
 def test_fmt_dt_preserves_subsecond_precision_for_naive_utc():
     assert (
         _fmt_dt(datetime(2026, 6, 1, 9, 30, 15, 123456))
