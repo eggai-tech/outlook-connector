@@ -13,6 +13,7 @@ from outlook_helper import GraphError
 from outlook_connector.bus import build_bus_event, build_transport
 from outlook_connector.config import get_settings
 from outlook_connector.health import HealthMonitor, start_health_server
+from outlook_connector.mover import Mover, build_mover_agent
 from outlook_connector.poller import GRAPH_ERRORS, Poller, PollSummary
 from outlook_connector.storage import save_to_storage
 
@@ -136,6 +137,13 @@ async def run_service() -> None:
     runner = None
     if settings.health_port is not None:
         runner = await start_health_server(monitor, settings.health_port)
+
+    mover_agent = build_mover_agent(
+        Mover(mailbox=settings.mailbox, client=poller.client),
+        channel=settings.bus.channel,
+        transport=transport,
+    )
+    await mover_agent.start()
 
     try:
         while True:

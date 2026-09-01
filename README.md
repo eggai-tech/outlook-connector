@@ -60,6 +60,38 @@ prefixes it with the `EGGAI_NAMESPACE` environment variable (default `eggai`),
 so events land on `<namespace>.<channel>` — set the namespace to match your
 consumers.
 
+## Commands: moving mail
+
+The connector also *listens*, on the same `bus.channel` it publishes to. A
+consumer that has seen an `email.received` event can ask the connector to file
+that message away by publishing an `email.move` command there, with a `data`
+payload of:
+
+| field                | meaning                                                                    |
+| -------------------- | -------------------------------------------------------------------------- |
+| `message_id`         | the Graph id published as `email.id`                                        |
+| `destination_folder` | well-known Graph name (`archive`), a folder display name, or a folder id    |
+| `mailbox`            | optional; when set it must name the connected mailbox, or the command is skipped |
+
+The envelope is a CloudEvents `BaseMessage` with `type: email.move`, the same
+shape as the outbound events. One channel carries both directions: the
+subscription is typed, so the connector handles only `email.move` envelopes and
+ignores everything else on the channel — its own `email.received` events
+included.
+
+Commands get **no reply**: the outcome is logged, and a failure drops the
+command rather than retrying it, so one unmovable message never stalls the
+stream. Graph reissues the message id in the destination folder, so a replayed
+command carries a stale id and fails with a logged "not found" instead of
+moving anything twice. Beware that a destination matching no folder is not
+reported as such: outlook-helper passes an unrecognized name through as if it
+were a folder id, and Graph answers `[400] Id is malformed` — only top-level
+folders resolve by display name. Moving needs `Mail.ReadWrite` rather than the
+read-only `Mail.Read` of the inbound path (see Azure setup below). The listener
+lives in [`src/outlook_connector/mover.py`](src/outlook_connector/mover.py),
+and [`scripts/move_email_event.py`](scripts/move_email_event.py) publishes one
+command by hand for testing.
+
 ## Azure setup
 
 The connector uses **app-only authentication** (OAuth 2.0 client credentials):
