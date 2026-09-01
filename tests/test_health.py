@@ -144,6 +144,22 @@ def test_never_completing_first_cycle_goes_stale():
     assert monitor.snapshot().status == "stale"
 
 
+def test_long_backfill_with_beats_is_not_stale():
+    """An unbounded first backfill can outlast the staleness window without a
+    completed cycle; per-message beats must keep the probe green, or a
+    liveness kill would restart the drain (and the in-memory cursor) forever."""
+    monitor, clock = make_monitor(poll_interval_seconds=60)
+
+    for _ in range(10):  # 10 minutes of publishing, one beat a minute
+        clock.advance(60)
+        monitor.beat()
+
+    assert monitor.snapshot().status == "starting"  # alive, first cycle still running
+
+    clock.advance(181)  # beats stop -> genuinely wedged
+    assert monitor.snapshot().status == "stale"
+
+
 def _get(port: int, path: str):
     return urllib.request.urlopen(f"http://localhost:{port}{path}", timeout=5)
 

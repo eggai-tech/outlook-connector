@@ -65,8 +65,10 @@ services:
       # image on purpose — it is supplied here instead.
       - ./config.yaml:/app/config.yaml:ro
     ports:
-      # GET /health — uptime, Graph/bus status, last poll cycle.
-      - "${HEALTH_HOST_PORT:-38000}:8000"
+      # GET /health — uptime, Graph/bus status, last poll cycle. Loopback only:
+      # the endpoint is unauthenticated, and a bare ports: mapping would be
+      # reachable from outside (Docker DNAT bypasses host firewall INPUT rules).
+      - "127.0.0.1:${HEALTH_HOST_PORT:-38000}:8000"
     depends_on:
       postgres:
         condition: service_healthy
@@ -74,6 +76,9 @@ services:
         condition: service_healthy
     healthcheck:
       # 200 while the poll loop ticks; 503 (urlopen raises) once it's wedged.
+      # Coupled to health_port: if config.yaml moves it off 8000 (or sets it to
+      # null), adjust or drop this check — otherwise the container reports
+      # unhealthy forever while polling fine.
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health', timeout=5)"]
       interval: 30s
       timeout: 10s

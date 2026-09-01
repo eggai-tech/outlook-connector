@@ -116,11 +116,24 @@ class HealthMonitor:
         self._last_cycle: PollSummary | None = None
         self._last_cycle_at: datetime.datetime | None = None
         self._last_success_at: datetime.datetime | None = None
+        self._last_beat: datetime.datetime | None = None
         self._graph = ProbeStatus()
         self._bus = ProbeStatus()
         # A loop that misses this much wall-clock (a few intervals, with slack
         # for one slow in-flight cycle) is reported stale -> HTTP 503.
         self._stale_after = max(3 * poll_interval_seconds, poll_interval_seconds + 60)
+
+    def beat(self) -> None:
+        """Record intra-cycle progress (a fetch done, a message published).
+
+        Staleness must measure whether the loop is *making progress*, not
+        whether a cycle has *completed*: an unbounded first backfill can
+        legitimately publish for longer than the staleness window, and a 503
+        there would let a liveness probe kill a healthy connector mid-drain —
+        re-seeding the in-memory cursor on restart and starting over forever.
+        """
+        with self._lock:
+            self._last_beat = self._now()
 
     def record_cycle(self, summary: PollSummary) -> None:
         at = self._now()
@@ -145,7 +158,8 @@ class HealthMonitor:
     def snapshot(self) -> HealthSnapshot:
         now = self._now()
         with self._lock:
-            last_beat = self._last_cycle_at or self._started_at
+            beats = [t for t in (self._last_cycle_at, self._last_beat) if t is not None]
+            last_beat = max(beats) if beats else self._started_at
             if (now - last_beat).total_seconds() > self._stale_after:
                 status = "stale"
             elif self._last_cycle is None:

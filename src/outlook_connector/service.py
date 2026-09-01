@@ -72,6 +72,9 @@ async def run_workflow(context) -> PollSummary:
     from there without re-publishing anything.
     """
     poller = context["poller"]
+    # Intra-cycle liveness for the health monitor: a long backfill cycle must
+    # not read as a wedged loop while it is visibly making progress.
+    heartbeat = context.get("heartbeat") or (lambda: None)
     summary = PollSummary()
 
     try:
@@ -81,12 +84,14 @@ async def run_workflow(context) -> PollSummary:
         logger.warning("Poll fetch failed", error=summary.error)
         return summary
 
+    heartbeat()
     summary.fetched = len(messages)
     fetched_at = poller.now()
 
     for index, message in enumerate(messages):
         try:
             await process_message(context, message, fetched_at=fetched_at)
+            heartbeat()
         except Exception as exc:
             # attachment fetch raises a Graph error; anything else is the bus
             _record_error(summary, exc, "graph" if isinstance(exc, GRAPH_ERRORS) else "bus")
@@ -123,6 +128,7 @@ async def run_service() -> None:
     }
 
     monitor = HealthMonitor(poll_interval_seconds=settings.poll_interval_seconds)
+    context["heartbeat"] = monitor.beat
     if settings.health_port is not None:
         start_health_server(monitor, settings.health_port)
 
