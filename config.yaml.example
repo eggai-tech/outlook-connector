@@ -46,9 +46,14 @@ bus:
   broker_url: localhost:19092  # bootstrap servers (kafka) / URL (redis); omit for transport default
   channel: emails
 
-# Redis variant:
+# Redis variant. Redis streams keep every entry in memory, acked or not, so
+# cap the stream with max_len (XADD MAXLEN ~): the oldest entries are trimmed
+# by count once the stream exceeds it, whether or not consumers have read
+# them. Size it to your memory budget and expected consumer lag; unset means
+# unbounded. Ignored by other transports.
 # bus:
 #   transport: redis
 #   broker_url: redis://localhost:6379/0
 #   channel: emails
+#   max_len: 1000
 

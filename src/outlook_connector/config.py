@@ -42,6 +42,12 @@ class BusConfig(BaseModel):
     # Broker URL / bootstrap servers. None falls back to the transport default.
     broker_url: str | None = None
     channel: str = "emails"
+    # Redis only: approximate cap on the channel's stream length, applied as
+    # XADD MAXLEN ~. Redis streams keep every entry in RAM, acked or not, so
+    # without this the stream grows until the server OOMs. Trimming is by
+    # count, oldest first, regardless of whether consumers have read them.
+    # None = unbounded. Ignored by kafka and inmemory.
+    max_len: int | None = Field(default=None, gt=0)
 
 
 class Settings(BaseSettings):
