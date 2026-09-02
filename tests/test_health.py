@@ -147,7 +147,7 @@ def test_never_completing_first_cycle_goes_stale():
 def test_long_backfill_with_beats_is_not_stale():
     """An unbounded first backfill can outlast the staleness window without a
     completed cycle; per-message beats must keep the probe green, or a
-    liveness kill would restart the drain (and the in-memory cursor) forever."""
+    liveness kill would restart the drain (and re-publish the folder) forever."""
     monitor, clock = make_monitor(poll_interval_seconds=60)
 
     for _ in range(10):  # 10 minutes of publishing, one beat a minute
@@ -211,7 +211,7 @@ async def test_fetch_pagination_beats_prevent_false_stale():
 
     monitor, clock = make_monitor(poll_interval_seconds=60)
     client = FakeClient(messages=[make_message(f"m{i}") for i in range(3)])
-    poller = Poller(client=client, cursor=T0, heartbeat=monitor.beat)
+    poller = Poller(client=client, heartbeat=monitor.beat)
 
     clock.advance(500)  # way past the staleness window mid-"fetch"
     poller.poll_mailbox()  # beats fire per message during listing

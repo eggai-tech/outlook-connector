@@ -28,10 +28,15 @@ message:
   publishes it to a configurable channel over kafka, redis, or an in-memory
   transport.
 
-Delivery bias is **never duplicate, occasionally drop**: the poll cursor only
-advances past a message once it is published, and the first failure stops the
-batch until the next cycle. Mail arriving while the service is down is not
-replayed (seed `initial_cursor` to backfill from a known instant).
+Delivery is **at least once**: each cycle rescans the whole source folder
+(a cheap ids-only listing) and publishes whatever it has not published yet,
+oldest first. Nothing durable is kept — a restart re-emits everything still in
+the folder — so **consumers must be idempotent**, deduping on
+`internet_message_id`. Mail is never lost while it remains in the folder: a
+failed publish is simply found again by the next rescan. In a full deployment
+a downstream mover drains the folder by filing processed mail elsewhere; the
+connector itself never mutates the mailbox. Point the connector at an old,
+full folder you don't want backfilled with `ignore_received_before`.
 
 ## The bus contract
 
@@ -50,7 +55,8 @@ natural dedup key for consumers), `from_addresses`, `to_addresses`, `subject`,
 `received_at`, `body_html`/`body_text`, `has_attachments`,
 `attachments[{file_name, content_type, size, body}]` (`body` is base64 on the
 wire, and `null` when content is withheld — size cap or item/reference
-attachment). Mind the broker's message-size limit when raising
+attachment), and `mime_content` (the full `.eml` when requested; always `null`
+on the polling path today). Mind the broker's message-size limit when raising
 `max_attachment_bytes`: kafka defaults to ~1MB per message. Models live in
 [`src/outlook_connector/schemas.py`](src/outlook_connector/schemas.py) and
 [`bus.py`](src/outlook_connector/bus.py).

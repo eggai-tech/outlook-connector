@@ -65,13 +65,15 @@ def test_list_messages_default_inbox_orders_newest_first():
 
 @respx.mock
 def test_list_messages_top_caps_results():
-    respx.get(f"{BASE}/me/mailFolders/inbox/messages").mock(
+    route = respx.get(f"{BASE}/me/mailFolders/inbox/messages").mock(
         return_value=httpx.Response(
             200, json={"value": [{"id": "1"}, {"id": "2"}, {"id": "3"}]}
         )
     )
     msgs = list(make_client().list_messages(top=2))
     assert [m.id for m in msgs] == ["1", "2"]
+    # $top rides to Graph as the page size so a bounded read is one round trip
+    assert route.calls.last.request.url.params["$top"] == "2"
 
 
 @respx.mock
@@ -113,6 +115,20 @@ def test_search_email_oldest_first_orders_ascending():
     )
     list(make_client().search_email(oldest_first=True))
     assert route.calls.last.request.url.params["$orderby"] == "receivedDateTime asc"
+
+
+@respx.mock
+def test_search_email_ids_only_selects_minimal_fields():
+    route = respx.get(f"{BASE}/me/messages").mock(
+        return_value=httpx.Response(200, json={"value": [{"id": "1"}]})
+    )
+    list(make_client().search_email(ids_only=True))
+    assert route.calls.last.request.url.params["$select"] == "id,receivedDateTime"
+
+
+def test_search_email_ids_only_rejects_include_headers():
+    with pytest.raises(ValueError, match="mutually exclusive"):
+        list(make_client().search_email(ids_only=True, include_headers=True))
 
 
 def test_fmt_dt_preserves_subsecond_precision_for_naive_utc():

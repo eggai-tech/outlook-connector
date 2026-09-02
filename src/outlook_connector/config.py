@@ -12,10 +12,10 @@ Validation is strict so startup can fail quickly.
 
 from functools import lru_cache
 import os
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from pydantic_settings import (
     BaseSettings,
     PydanticBaseSettingsSource,
@@ -57,20 +57,36 @@ class Settings(BaseSettings):
     # Folder to poll (well-known Graph name like "inbox", or a display name).
     source_folder: str = Field(default="inbox", min_length=1)
     poll_interval_seconds: float = Field(default=60.0, gt=0)
-    # At most this many messages per poll cycle, oldest first; a backlog drains
-    # across cycles instead of in one unbounded burst. None = no bound.
-    batch_max_messages: int | None = Field(default=None, gt=0)
+    # At most this many messages fetched + published per poll cycle, oldest
+    # first; a backlog (or a restart's re-emit of the whole folder) drains
+    # across cycles instead of in one unbounded burst of full-message fetches.
+    # null = no bound — only sensible for small, drained folders.
+    batch_max_messages: int | None = Field(default=100, gt=0)
     # Attachments larger than this are published as metadata only (body=None).
     # Mind your broker's message-size limit (kafka defaults to ~1MB).
     # None = no cap.
     max_attachment_bytes: int | None = Field(default=8 * 1024 * 1024, gt=0)
-    # Optional manual cursor seed (ISO 8601). When unset, each mailbox cursor
-    # starts at process-start "now" so only mail received after startup is
-    # bridged. Set this to backfill from a known point in time instead.
-    initial_cursor: datetime | None = None
+    # Optional lower bound (ISO 8601): mail received before this instant is
+    # never listed or published. By default the whole source folder is
+    # bridged — every rescan re-emits anything still present, and consumers
+    # dedupe. Set this to keep an old, full folder from being backfilled.
+    ignore_received_before: datetime | None = None
     # Port for the HTTP health/status endpoint (GET /health), bound on all
     # interfaces. null disables the endpoint entirely.
     health_port: int | None = Field(default=8000, gt=0, le=65535)
+
+    @field_validator("ignore_received_before")
+    @classmethod
+    def _bound_must_be_aware(cls, value: datetime | None) -> datetime | None:
+        """Coerce a naive timestamp to UTC.
+
+        Graph timestamps are timezone-aware; a naive bound would compare
+        wrongly (or raise) downstream. A bare ISO string like
+        "2026-06-26T08:00:00" is treated as UTC.
+        """
+        if value is not None and value.tzinfo is None:
+            return value.replace(tzinfo=UTC)
+        return value
     log_level: str = "INFO"
     bus: BusConfig = Field(default_factory=BusConfig)
 

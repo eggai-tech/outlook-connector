@@ -54,15 +54,27 @@ def graph_message(message_id: str, *, received: str, has_attachments: bool = Fal
 
 @respx.mock
 def test_full_poll_cycle_publishes_wire_correct_events():
-    respx.get(f"{BASE}/users/{MAILBOX}/mailFolders/inbox/messages").mock(
+    # the rescan lists the folder ids-only, then fetches each message in full
+    listing = respx.get(f"{BASE}/users/{MAILBOX}/mailFolders/inbox/messages").mock(
         return_value=httpx.Response(
             200,
             json={
                 "value": [
-                    graph_message("m1", received="2026-01-01T12:00:10Z"),
-                    graph_message("m2", received="2026-01-01T12:00:20Z", has_attachments=True),
+                    {"id": "m1", "receivedDateTime": "2026-01-01T12:00:10Z"},
+                    {"id": "m2", "receivedDateTime": "2026-01-01T12:00:20Z"},
                 ]
             },
+        )
+    )
+    respx.get(f"{BASE}/users/{MAILBOX}/messages/m1").mock(
+        return_value=httpx.Response(
+            200, json=graph_message("m1", received="2026-01-01T12:00:10Z")
+        )
+    )
+    respx.get(f"{BASE}/users/{MAILBOX}/messages/m2").mock(
+        return_value=httpx.Response(
+            200,
+            json=graph_message("m2", received="2026-01-01T12:00:20Z", has_attachments=True),
         )
     )
     respx.get(f"{BASE}/users/{MAILBOX}/messages/m2/attachments").mock(
@@ -83,7 +95,7 @@ def test_full_poll_cycle_publishes_wire_correct_events():
         )
     )
 
-    poller = Poller(client=make_client(), cursor=T0, now=lambda: T0)
+    poller = Poller(client=make_client(), now=lambda: T0)
     channel = FakeChannel()
     context = {"poller": poller, "channel": channel, "source_mailbox": MAILBOX}
 
@@ -91,7 +103,8 @@ def test_full_poll_cycle_publishes_wire_correct_events():
 
     assert (summary.fetched, summary.published, summary.dropped) == (2, 2, 0)
     assert summary.error is None
-    assert poller.cursor == datetime.datetime(2026, 1, 1, 12, 0, 20, tzinfo=datetime.UTC)
+    assert listing.calls.last.request.url.params["$select"] == "id,receivedDateTime"
+    assert poller._published_ids == {"m1", "m2"}
 
     # what a consumer receives after a JSON round trip (the wire format)
     events = [type(e).model_validate_json(e.model_dump_json()) for e in channel.published]

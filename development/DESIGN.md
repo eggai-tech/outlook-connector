@@ -3,7 +3,7 @@
 This is a live document that records major code decisions and directions. It does not describe what can be read in code.
 Context and explanations belong in each module and function's docstring.
 
-If this document and the code approach disagree, this document is right. 
+If this document and the code approach disagree, this document is right.
 This document needs to be updated with a decision _before_ starting to make code changes.
 
 ## Foundations
@@ -24,15 +24,15 @@ Secrets are never allowed in the configuration file, and must come from env vari
 
 This service communicates with other services using a message bus, through the EggAI SDK.
 A supported bus type and its parameters are given in the config file.
-All interaction happens through the SDK, so that the bus implmentation may be changed. 
-No interaction goes directly to the underlying message queue. 
+All interaction happens through the SDK, so that the bus implmentation may be changed.
+No interaction goes directly to the underlying message queue.
 
 ## Data model
 
 All input and output objects are Pydantic models.
 
 The Outlook Helper is considered to be part of this project.
-Data models from Outlook Helper can be used as-is in interaction with other services. 
+Data models from Outlook Helper can be used as-is in interaction with other services.
 There is no need to map them to new models.
 
 
@@ -48,8 +48,8 @@ There is no need to map them to new models.
 
 ## Storage system
 
-The current solution uses PostgreSQL for storage. 
-To keep it possible to add other storage options later, the code does not refer to PostgreSQL by name but instead 
+The current solution uses PostgreSQL for storage.
+To keep it possible to add other storage options later, the code does not refer to PostgreSQL by name but instead
 calls a generic `save_to_storage()` wrapper function.
 
 ## Ingestion
@@ -63,15 +63,25 @@ calls a generic `save_to_storage()` wrapper function.
 
 Stdlib `logging`, configurable level, to stdout (for container log capture).
 
-## Per-mailbox cursor
+## Folder rescan (no cursor)
 
-- The mailbox has a last-seen `received_date_time` cursor.
-- The cursor lives in-memory only. On startup it is initialised to
-  **"now"**, so only mail received strictly after process start is bridged.
-- The cursor can be initialized to another date at startup through a configuration field.
-- A poll queries the mailbox for messages with `receivedDateTime > cursor` (**strict `>`**).
-- After fetching, the cursor advances to the **maximum `receivedDateTime`
-  observed** in the batch (server-relative, avoids host/server clock skew).
+- The source folder itself is the work set: every poll cycle lists the whole
+  folder (ids + `receivedDateTime` only — cheap) and fetches the oldest unseen
+  messages in full, up to `batch_max_messages`.
+- A restart empties the set: everything still in the folder is published
+  again. Combined with the Ingestion guarantees above, this is the whole
+  at-least-once story — consumers dedupe on `internet_message_id`.
+- In a full deployment a downstream mover drains the folder (moving processed
+  mail out) so the steady-state listing stays small; the connector itself
+  never mutates the mailbox.
+- `ignore_received_before` (config, optional) lower-bounds the listing for
+  users who point the connector at an old, full folder they do not want
+  backfilled.
+- History: earlier designs used a `receivedDateTime` cursor with strict-`>`
+  advancement. Graph truncates `receivedDateTime` to whole seconds in
+  responses while filtering on finer stored values, which made every cursor
+  scheme either drop boundary mail or republish it forever; the rescan removes
+  the class of problem instead of patching it.
 
 ## Identity
 

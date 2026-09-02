@@ -14,8 +14,9 @@ mailbox: inbox@example.com
 # Fixed-delay between poll cycles, in seconds.
 poll_interval_seconds: 60
 
-# At most this many messages per cycle, oldest first — a backlog drains
-# predictably across cycles. Comment out for no bound.
+# At most this many messages fetched + published per cycle, oldest first —
+# a backlog (or a restart's re-emit) drains predictably across cycles.
+# Default 100; null removes the bound (only sensible for small folders).
 # batch_max_messages: 100
 
 # Attachments larger than this are published as metadata only (body: null).
@@ -23,10 +24,11 @@ poll_interval_seconds: 60
 # defaults to ~1MB per message.
 # max_attachment_bytes: 8388608
 
-# Optional: seed the mailbox cursor from this instant (ISO 8601) instead of
-# process-start "now". Only mail received strictly after this point is bridged.
-# Leave commented to start from "now".
-# initial_cursor: 2026-06-26T08:00:00Z
+# Optional lower bound (ISO 8601): mail received before this instant is never
+# listed or published. Leave commented to bridge the whole source folder —
+# every rescan re-emits anything still present; consumers dedupe on
+# internet_message_id. Set this to keep an old, full folder from backfilling.
+# ignore_received_before: 2026-06-26T08:00:00Z
 
 # HTTP health/status endpoint: GET /health reports uptime, Graph/bus status
 # and the last poll cycle. 200 while the poll loop ticks, 503 once it is
