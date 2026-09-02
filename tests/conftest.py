@@ -53,14 +53,18 @@ class FakeClient:
     ``search_email`` serves the poller's ids-only folder listing (returning the
     same message objects as stubs); ``get_email`` serves the per-message full
     fetch. ``self.messages`` is mutable so tests can simulate mail being moved
-    out of (or back into) the folder between polls.
+    out of (or back into) the folder between polls. Like the real client,
+    ``get_email`` only fills ``mime_content`` (with ``self.mime_content``) when
+    called with ``include_mime=True``.
     """
 
-    def __init__(self, messages=(), attachments=()):
+    def __init__(self, messages=(), attachments=(), mime_content="MIME-Version: 1.0\r\n"):
         self.messages = list(messages)
         self.attachments = list(attachments)
+        self.mime_content = mime_content
         self.search_calls: list[dict] = []
         self.get_email_calls: list[str] = []
+        self.get_email_kwargs: list[dict] = []
         self.attachment_calls: list[str] = []
 
     def search_email(self, **kwargs):
@@ -70,8 +74,11 @@ class FakeClient:
 
     def get_email(self, message_id, **kwargs):
         self.get_email_calls.append(message_id)
+        self.get_email_kwargs.append(kwargs)
         for message in self.messages:
             if message.id == message_id:
+                if kwargs.get("include_mime"):
+                    return message.model_copy(update={"mime_content": self.mime_content})
                 return message
         raise AssertionError(f"get_email for unknown id {message_id!r}")
 

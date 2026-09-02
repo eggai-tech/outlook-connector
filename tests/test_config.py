@@ -14,6 +14,7 @@ _SETTINGS_ENV = {
     "POLL_INTERVAL_SECONDS",
     "BATCH_MAX_MESSAGES",
     "MAX_ATTACHMENT_BYTES",
+    "INCLUDE_MIME_CONTENT",
     "IGNORE_RECEIVED_BEFORE",
     "LOG_LEVEL",
     "HEALTH_PORT",
@@ -52,6 +53,7 @@ def test_loads_minimal_config(tmp_path, monkeypatch, azure_env):
     assert settings.source_folder == "inbox"
     assert settings.batch_max_messages == 100
     assert settings.max_attachment_bytes == 8 * 1024 * 1024
+    assert settings.include_mime_content is False
 
 
 def test_polling_fields_configurable(tmp_path, monkeypatch, azure_env):
@@ -61,7 +63,8 @@ def test_polling_fields_configurable(tmp_path, monkeypatch, azure_env):
         "mailbox: inbox@example.com\n"
         "source_folder: Bankbestätigungen\n"
         "batch_max_messages: 50\n"
-        "max_attachment_bytes: 1048576\n",
+        "max_attachment_bytes: 1048576\n"
+        "include_mime_content: true\n",
     )
 
     settings = Settings()
@@ -69,6 +72,7 @@ def test_polling_fields_configurable(tmp_path, monkeypatch, azure_env):
     assert settings.source_folder == "Bankbestätigungen"
     assert settings.batch_max_messages == 50
     assert settings.max_attachment_bytes == 1048576
+    assert settings.include_mime_content is True
 
 
 def test_empty_azure_credential_rejected(tmp_path, monkeypatch, azure_env):

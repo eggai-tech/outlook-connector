@@ -36,6 +36,7 @@ def build_poller(heartbeat=None):
         source_folder=settings.source_folder,
         batch_max_messages=settings.batch_max_messages,
         max_attachment_bytes=settings.max_attachment_bytes,
+        include_mime_content=settings.include_mime_content,
         ignore_received_before=settings.ignore_received_before,
         **kwargs,
     )
@@ -129,6 +130,15 @@ async def run_service() -> None:
             "limit. Note the cap is PER attachment: a multi-attachment "
             "message can exceed the broker limit even under a smaller cap",
             max_attachment_bytes=settings.max_attachment_bytes,
+        )
+    if settings.bus.transport == "kafka" and settings.include_mime_content:
+        # The $value MIME carries every attachment again and is not subject
+        # to max_attachment_bytes, so the cap above does not protect it.
+        logger.warning(
+            "include_mime_content is on: email.mime_content is the whole RFC 822 "
+            "message and is NOT bounded by max_attachment_bytes; a message with "
+            "large attachments can exceed kafka's default 1MiB limit and block "
+            "the batch behind it"
         )
     monitor = HealthMonitor(poll_interval_seconds=settings.poll_interval_seconds)
     # The poller owns the heartbeat: beats fire per fetched message, through

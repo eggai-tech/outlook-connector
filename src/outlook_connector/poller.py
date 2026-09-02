@@ -107,6 +107,7 @@ class Poller:
         source_folder: str = "inbox",
         batch_max_messages: int | None = None,
         max_attachment_bytes: int | None = None,
+        include_mime_content: bool = False,
         ignore_received_before: datetime.datetime | None = None,
         heartbeat: Callable[[], None] = _noop,
     ):
@@ -118,6 +119,7 @@ class Poller:
         self.source_folder = source_folder
         self.batch_max_messages = batch_max_messages
         self.max_attachment_bytes = max_attachment_bytes
+        self.include_mime_content = include_mime_content
         self.ignore_received_before = ignore_received_before
         # Ids published this process lifetime that are still in the folder.
         self._published_ids: set[str] = set()
@@ -153,7 +155,12 @@ class Poller:
         for stub in unseen:
             try:
                 messages.append(
-                    self.client.get_email(stub.id, include_headers=True, html_body=True)
+                    self.client.get_email(
+                        stub.id,
+                        include_headers=True,
+                        html_body=True,
+                        include_mime=self.include_mime_content,
+                    )
                 )
             except GraphError as exc:
                 if exc.status_code == 404:

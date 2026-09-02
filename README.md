@@ -55,11 +55,19 @@ natural dedup key for consumers), `from_addresses`, `to_addresses`, `subject`,
 `received_at`, `body_html`/`body_text`, `has_attachments`,
 `attachments[{file_name, content_type, size, body}]` (`body` is base64 on the
 wire, and `null` when content is withheld — size cap or item/reference
-attachment), and `mime_content` (the full `.eml` when requested; always `null`
-on the polling path today). Mind the broker's message-size limit when raising
-`max_attachment_bytes`: kafka defaults to ~1MB per message. Models live in
-[`src/outlook_connector/schemas.py`](src/outlook_connector/schemas.py) and
-[`bus.py`](src/outlook_connector/bus.py).
+attachment), and `mime_content` (see below). Mind the broker's message-size
+limit when raising `max_attachment_bytes`: kafka defaults to ~1MB per message.
+Models live in [`src/outlook_connector/schemas.py`](src/outlook_connector/schemas.py)
+and [`bus.py`](src/outlook_connector/bus.py).
+
+`mime_content` is `null` unless `include_mime_content: true` is set in
+`config.yaml`. When it is, the connector makes one extra Graph call per message
+(`/messages/{id}/$value`) and publishes the full RFC 822 message as Graph serves
+it — headers, text/HTML bodies and every attachment, base64-encoded — so a
+consumer can store the raw `.eml`. The attachments still go on the wire as
+above, so the event roughly doubles in size, and the MIME is **not** bounded by
+`max_attachment_bytes`: a single message with large attachments can exceed the
+broker's limit and, under the stop-batch policy, block everything behind it.
 
 The channel name is set by `bus.channel` in `config.yaml`; the eggai SDK
 prefixes it with the `EGGAI_NAMESPACE` environment variable (default `eggai`),
