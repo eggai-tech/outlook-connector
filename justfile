@@ -84,6 +84,16 @@ test *args:
 test-helper *args:
     uv run --directory libs/outlook-helper pytest {{args}}
 
+# Everything except the randomized fuzz seeds (fastest inner loop).
+test-fast *args:
+    uv run pytest -m "not fuzz" {{args}}
+
+# Hunt with the simulated mailbox: hundreds of fresh scenarios on every core.
+# The committed gate (just test) runs a small fixed-seed subset of this.
+soak seeds="800" steps="400" base="1000":
+    SIM_SEEDS={{seeds}} SIM_STEPS={{steps}} SIM_SEED_BASE={{base}} \
+        uv run --with pytest-xdist pytest tests/sim/test_fuzz.py -n 12 -q
+
 # Both suites.
 test-all: test test-helper
 

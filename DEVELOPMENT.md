@@ -110,6 +110,9 @@ consumer side of that.
 
 ## CI
 
-[.github/workflows/ci.yml](.github/workflows/ci.yml) runs both test suites, then
-builds and pushes the connector image to ghcr.io on `develop`, `main` and `v*`
-tags. `outlook-helper-v*` tags deliberately do not match the image trigger.
+[.github/workflows/ci.yml](.github/workflows/ci.yml) runs both test suites on
+every pull request, then builds and pushes the connector image to ghcr.io on
+pushes to `main` and on `v*` tags. `main` publishes `:main` and `:sha-*`;
+only a non-prerelease `v*` tag publishes `:latest`, so `:latest` always means
+"the current release" rather than "the tip of the development branch".
+`outlook-helper-v*` tags deliberately do not match the image trigger.
