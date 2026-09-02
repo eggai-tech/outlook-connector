@@ -117,6 +117,30 @@ Redis doubles as the EggAI bus for the compose stack — `BUS__TRANSPORT` and
 point at a kafka broker instead. Postgres is started as a supporting service;
 the connector has no persistence layer yet and does not read from it.
 
+### Published image
+
+CI publishes a multi-arch (amd64, arm64) image to
+`ghcr.io/eggai-tech/outlook-connector` on every `v*` tag. Tags: the full
+version (`0.1.0`), the minor line (`0.1`), `latest` (the newest release), plus
+`main` and `sha-<commit>` for untagged builds.
+
+```sh
+docker pull ghcr.io/eggai-tech/outlook-connector:0.1
+```
+
+The image needs the same two inputs as the compose stack: `config.yaml` mounted
+at `/app/config.yaml` and the `AZURE_*` credentials in the environment. It does
+not bundle a bus, so `.env` must also carry `BUS__TRANSPORT` / `BUS__BROKER_URL`
+pointing at a redis or kafka the container can reach:
+
+```sh
+docker run --rm \
+  --env-file .env \
+  -v ./config.yaml:/app/config.yaml:ro \
+  -p 127.0.0.1:38000:8000 \
+  ghcr.io/eggai-tech/outlook-connector:0.1
+```
+
 ## Health endpoint
 
 The connector serves `GET /health` on `health_port` (default 8000, `null`
