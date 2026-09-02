@@ -68,8 +68,8 @@ def build_transport(bus_config: BusConfig) -> Transport:
         return KafkaTransport()
     if bus_config.transport == "redis":
         if bus_config.broker_url:
-            return RedisTransport(url=bus_config.broker_url)
-        return RedisTransport()
+            return RedisTransport(url=bus_config.broker_url, max_len=bus_config.max_len)
+        return RedisTransport(max_len=bus_config.max_len)
     if bus_config.transport == "inmemory":
         return InMemoryTransport()
     raise ValueError(f"Unknown transport: {bus_config.transport!r}")

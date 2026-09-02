@@ -1,6 +1,6 @@
 import pytest
 from conftest import T0, make_attachment, make_message
-from eggai import InMemoryTransport
+from eggai import InMemoryTransport, RedisTransport
 
 from outlook_connector.bus import EMAIL_RECEIVED, build_bus_event, build_transport
 from outlook_connector.config import BusConfig
@@ -43,6 +43,20 @@ def test_envelope_round_trips_through_json():
 def test_build_transport_inmemory():
     transport = build_transport(BusConfig(transport="inmemory"))
     assert isinstance(transport, InMemoryTransport)
+
+
+def test_build_transport_redis_passes_max_len():
+    transport = build_transport(
+        BusConfig(transport="redis", broker_url="redis://localhost:6379/0", max_len=500)
+    )
+    assert isinstance(transport, RedisTransport)
+    assert transport._max_len == 500
+
+
+def test_build_transport_redis_unbounded_by_default():
+    transport = build_transport(BusConfig(transport="redis"))
+    assert isinstance(transport, RedisTransport)
+    assert transport._max_len is None
 
 
 def test_build_transport_rejects_unknown():
