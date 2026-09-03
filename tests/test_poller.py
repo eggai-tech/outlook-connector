@@ -1,8 +1,10 @@
+import asyncio
 import datetime
 
-from conftest import T0, FakeClient, make_attachment, make_message
+from conftest import T0, FakeChannel, FakeClient, make_attachment, make_message
 
 from outlook_connector.poller import Poller
+from outlook_connector.service import run_workflow
 
 
 def _at(seconds: int) -> datetime.datetime:
@@ -139,6 +141,39 @@ def test_oversized_attachment_stripped_to_metadata():
     assert small.content == b"ok"
     assert huge.content is None
     assert huge.size == 100  # original size survives for the metadata-only entry
+
+
+def _publish_one(poller):
+    channel = FakeChannel()
+    context = {"poller": poller, "channel": channel, "source_mailbox": "inbox@example.com"}
+    summary = asyncio.run(run_workflow(context))
+    assert summary.published == 1
+    return channel.published[0]
+
+
+def test_include_mime_content_puts_the_rfc822_message_on_the_wire():
+    client = FakeClient(messages=[make_message("m1")], mime_content="From: a@b\r\n\r\nhi")
+    poller = Poller(client=client, include_mime_content=True)
+
+    event = _publish_one(poller)
+
+    assert client.get_email_kwargs == [
+        {"include_headers": True, "html_body": True, "include_mime": True}
+    ]
+    assert event.data.email.mime_content == "From: a@b\r\n\r\nhi"
+
+
+def test_mime_content_is_off_by_default():
+    client = FakeClient(messages=[make_message("m1")])
+    poller = Poller(client=client)
+
+    event = _publish_one(poller)
+
+    assert client.get_email_kwargs == [
+        {"include_headers": True, "html_body": True, "include_mime": False}
+    ]
+    assert event.data.email.mime_content is None
+
 
 def test_listed_message_gone_before_fetch_is_skipped():
     """The downstream mover files mail out of the folder concurrently; a 404

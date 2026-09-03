@@ -72,6 +72,13 @@ class Settings(BaseSettings):
     # Mind your broker's message-size limit (kafka defaults to ~1MB).
     # None = no cap.
     max_attachment_bytes: int | None = Field(default=8 * 1024 * 1024, gt=0)
+    # When true the connector makes one extra Graph call per message
+    # (``/messages/{id}/$value``) and publishes the full RFC 822 message —
+    # headers, bodies and every attachment base64-encoded again — as
+    # ``email.mime_content``. Attachments stay on the wire as well, so the
+    # event roughly doubles in size. NOT bounded by ``max_attachment_bytes``:
+    # mind the broker's message-size limit (kafka defaults to ~1 MiB).
+    include_mime_content: bool = False
     # Optional lower bound (ISO 8601): mail received before this instant is
     # never listed or published. By default the whole source folder is
     # bridged — every rescan re-emits anything still present, and consumers
