@@ -114,6 +114,17 @@ def test_get_command_with_eml_prints_the_raw_mime():
     assert result.stdout_bytes == b"Subject: Hello\r\n\r\nBody\r\n"
 
 
+def test_get_command_with_eml_prints_the_bytes_graph_served():
+    raw = "Subject: Größe\r\n\r\n€\r\n".encode()
+    fake = FakeClient()
+    fake.get_email = lambda *a, **k: OutlookMessage(
+        id="M1", mime_content=raw.decode("latin-1")
+    )
+    result = run(["get", "M1", "--eml"], fake)
+    assert result.exit_code == 0
+    assert result.stdout_bytes == raw
+
+
 def test_list_command_prints_messages():
     fake = FakeClient()
     result = run(["list"], fake)

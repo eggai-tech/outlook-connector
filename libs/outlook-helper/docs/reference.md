@@ -244,9 +244,15 @@ every attachment, exactly as the message arrived. Graph serves it from a
 separate `$value` endpoint, so it costs a second request; leave it off unless
 you need the raw message.
 
+The string is the raw bytes decoded as latin-1 (one character per byte), not
+readable text: parts sent 8bit in any charset survive it unchanged. Encode it
+back to get the bytes:
+
 ```python
 msg = client.get_email("AAMk...", include_mime=True)
-Path("mail.eml").write_text(msg.mime_content, newline="")  # keep CRLF intact
+raw = msg.mime_content.encode("latin-1")  # exactly the bytes Graph served
+Path("mail.eml").write_bytes(raw)
+email.message_from_bytes(raw, policy=email.policy.default)
 ```
 
 Attachments come through base64-encoded inside the MIME, so a message with big
@@ -501,7 +507,7 @@ flattened to `EmailAddress`. Unknown Graph fields are ignored.
 | `web_link`         | `str \| None`         | Open-in-Outlook URL.                             |
 | `conversation_id`  | `str \| None`         |                                                  |
 | `parent_folder_id` | `str \| None`         |                                                  |
-| `mime_content`     | `str \| None`         | The whole `.eml`; `None` unless `include_mime=True`. |
+| `mime_content`     | `str \| None`         | The whole `.eml` as latin-1; `None` unless `include_mime=True`. |
 
 ### `EmailAddress`
 | Field     | Type           |

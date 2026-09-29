@@ -62,8 +62,9 @@ client = OutlookClient(credential)  # defaults to the signed-in user's mailbox
 # so it is safe to persist as a message's unique key.
 msg = client.get_email("<message-id>")
 
-# ...or with the whole message in MIME format (a .eml) on msg.mime_content
-raw = client.get_email("<message-id>", include_mime=True).mime_content
+# ...or with the whole message in MIME format (a .eml) on msg.mime_content,
+# its bytes decoded as latin-1
+raw = client.get_email("<message-id>", include_mime=True).mime_content.encode("latin-1")
 
 for m in client.list_messages(folder="inbox", top=20):
     print(m.id, m.subject, m.from_.address)

@@ -58,4 +58,6 @@ class Email(BaseModel):
         False  # can be True even if attachments field is not used and left blank
     )
     attachments: list[EmailAttachment] = []
+    #: The raw RFC 822 message, its bytes decoded as latin-1:
+    #: ``mime_content.encode("latin-1")`` gives back exactly what Graph served.
     mime_content: str | None = None
