@@ -228,6 +228,26 @@ def test_get_email_with_include_mime_fetches_the_raw_mime(load_fixture):
 
 
 @respx.mock
+def test_get_email_mime_content_encodes_back_to_the_exact_bytes(load_fixture):
+    # 8bit parts in UTF-8 and in latin-1, which no single text decode keeps.
+    raw = (
+        b"Subject: x\r\nContent-Transfer-Encoding: 8bit\r\n\r\n"
+        + "Größe: 5 €\r\n".encode()
+        + "Müller\r\n".encode("latin-1")
+    )
+    respx.get(f"{BASE}/me/messages/AAMkAGI1").mock(
+        return_value=httpx.Response(200, json=load_fixture("message.json"))
+    )
+    respx.get(f"{BASE}/me/messages/AAMkAGI1/$value").mock(
+        return_value=httpx.Response(
+            200, headers={"Content-Type": "text/plain"}, content=raw
+        )
+    )
+    msg = make_client().get_email("AAMkAGI1", include_mime=True)
+    assert msg.mime_content.encode("latin-1") == raw
+
+
+@respx.mock
 def test_get_email_without_include_mime_leaves_mime_content_unset(load_fixture):
     respx.get(f"{BASE}/me/messages/AAMkAGI1").mock(
         return_value=httpx.Response(200, json=load_fixture("message.json"))

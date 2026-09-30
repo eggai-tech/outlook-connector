@@ -93,11 +93,11 @@ class GraphSession:
     ) -> dict:
         return self.request("GET", path, params=params, headers=headers).json()
 
-    def get_text(
+    def get_bytes(
         self, path: str, params: dict | None = None, *, headers: dict | None = None
-    ) -> str:
-        """Return the response body for ``path`` as text (e.g. ``$value`` MIME)."""
-        return self.request("GET", path, params=params, headers=headers).text
+    ) -> bytes:
+        """Return the response body for ``path`` as served (e.g. ``$value`` MIME)."""
+        return self.request("GET", path, params=params, headers=headers).content
 
     def paginate(
         self, path: str, params: dict | None = None, *, headers: dict | None = None

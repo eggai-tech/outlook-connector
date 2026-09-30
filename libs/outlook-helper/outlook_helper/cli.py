@@ -107,7 +107,9 @@ def get(ctx, message_id, eml):
     """Fetch a single message by id."""
     msg = get_client(ctx).get_email(message_id, include_mime=eml)
     if eml:
-        click.echo(msg.mime_content or "", nl=False)
+        click.get_binary_stream("stdout").write(
+            (msg.mime_content or "").encode("latin-1")
+        )
         return
     click.echo(_format_message(msg))
     if msg.body and msg.body.content:

@@ -64,7 +64,11 @@ and [`bus.py`](src/outlook_connector/bus.py).
 `config.yaml`. When it is, the connector makes one extra Graph call per message
 (`/messages/{id}/$value`) and publishes the full RFC 822 message as Graph serves
 it — headers, text/HTML bodies and every attachment, base64-encoded — so a
-consumer can store the raw `.eml`. The attachments still go on the wire as
+consumer can store the raw `.eml`. The bytes are decoded as latin-1, one
+character per byte, so `mime_content.encode("latin-1")` gives back exactly what
+Graph served, 8bit parts in any charset included. It is not readable text: an
+8bit UTF-8 "ü" reads as "Ã¼". Parse the bytes, e.g. with
+`email.message_from_bytes`. The attachments still go on the wire as
 above, so the event roughly doubles in size, and the MIME is **not** bounded by
 `max_attachment_bytes`: a single message with large attachments can exceed the
 broker's limit and, under the stop-batch policy, block everything behind it.

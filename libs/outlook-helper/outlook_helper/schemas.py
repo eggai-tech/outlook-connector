@@ -72,6 +72,9 @@ class OutlookMessage(GraphModel):
     #: The whole message in MIME format (a ``.eml``): headers, bodies and
     #: attachments in one string. Graph never returns it alongside the message
     #: JSON, so it is ``None`` unless it was asked for with ``include_mime``.
+    #: It holds the raw bytes decoded as latin-1, not readable text: an 8bit
+    #: UTF-8 "ü" reads as "Ã¼". ``mime_content.encode("latin-1")`` restores the
+    #: exact bytes, e.g. for ``email.message_from_bytes``.
     mime_content: str | None = None
 
     @property

@@ -97,7 +97,9 @@ class OutlookClient:
         whole ``.eml``, headers and attachments included -- into
         :attr:`~outlook_helper.schemas.OutlookMessage.mime_content`. Graph only
         serves it from a separate ``$value`` endpoint, so it costs a second
-        request.
+        request. The bytes are decoded as latin-1, one character per byte, so
+        ``mime_content.encode("latin-1")`` gives back exactly what Graph served,
+        whatever charset or 8bit transfer encoding its parts use.
         """
         params: dict[str, Any] = {}
         if include_headers:
@@ -107,7 +109,9 @@ class OutlookClient:
         data = self._session.get_json(path, params or None, headers=headers)
         message = OutlookMessage.model_validate(data)
         if include_mime:
-            message.mime_content = self._session.get_text(f"{path}/$value")
+            message.mime_content = self._session.get_bytes(f"{path}/$value").decode(
+                "latin-1"
+            )
         return message
 
     def list_messages(

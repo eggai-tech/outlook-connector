@@ -115,20 +115,19 @@ def test_paginate_follows_next_link_lazily():
 
 
 @respx.mock
-def test_get_text_returns_the_decoded_body():
+def test_get_bytes_returns_the_body_as_served():
+    body = "Subject: Hi\r\n\r\nGröße €\r\n".encode() + b"\xfc\r\n"
     respx.get(f"{BASE}/me/messages/1/$value").mock(
         return_value=httpx.Response(
-            200,
-            headers={"Content-Type": "text/plain"},
-            text="Subject: Hi\r\n\r\nBody\r\n",
+            200, headers={"Content-Type": "text/plain"}, content=body
         )
     )
     session, _ = make_session()
-    assert session.get_text("/me/messages/1/$value") == "Subject: Hi\r\n\r\nBody\r\n"
+    assert session.get_bytes("/me/messages/1/$value") == body
 
 
 @respx.mock
-def test_get_text_raises_graph_error_on_failure():
+def test_get_bytes_raises_graph_error_on_failure():
     respx.get(f"{BASE}/me/messages/missing/$value").mock(
         return_value=httpx.Response(
             404, json={"error": {"code": "ErrorItemNotFound", "message": "nope"}}
@@ -136,7 +135,7 @@ def test_get_text_raises_graph_error_on_failure():
     )
     session, _ = make_session()
     with pytest.raises(GraphError) as exc:
-        session.get_text("/me/messages/missing/$value")
+        session.get_bytes("/me/messages/missing/$value")
     assert exc.value.code == "ErrorItemNotFound"
 
 
