@@ -109,6 +109,7 @@ class Poller:
         max_attachment_bytes: int | None = None,
         include_mime_content: bool = False,
         ignore_received_before: datetime.datetime | None = None,
+        ignore_received_after: datetime.datetime | None = None,
         heartbeat: Callable[[], None] = _noop,
     ):
         self.heartbeat = heartbeat
@@ -121,6 +122,7 @@ class Poller:
         self.max_attachment_bytes = max_attachment_bytes
         self.include_mime_content = include_mime_content
         self.ignore_received_before = ignore_received_before
+        self.ignore_received_after = ignore_received_after
         # Ids published this process lifetime that are still in the folder.
         self._published_ids: set[str] = set()
 
@@ -135,6 +137,7 @@ class Poller:
         for stub in self.client.search_email(
             folder=self.source_folder,
             since=self.ignore_received_before,
+            until=self.ignore_received_after,
             oldest_first=True,
             ids_only=True,
         ):

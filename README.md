@@ -36,7 +36,8 @@ the folder — so **consumers must be idempotent**, deduping on
 failed publish is simply found again by the next rescan. In a full deployment
 a downstream mover drains the folder by filing processed mail elsewhere; the
 connector itself never mutates the mailbox. Point the connector at an old,
-full folder you don't want backfilled with `ignore_received_before`.
+full folder you don't want backfilled with `ignore_received_before`; cap the
+other end with `ignore_received_after` to leave newer mail untouched.
 
 ## The bus contract
 
