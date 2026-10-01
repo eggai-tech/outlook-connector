@@ -16,7 +16,7 @@ _SETTINGS_ENV = {
     "MAX_ATTACHMENT_BYTES",
     "INCLUDE_MIME_CONTENT",
     "IGNORE_RECEIVED_BEFORE",
-    "IGNORE_RECEIVED_AFTER",
+    "IGNORE_NEWER_THAN_MINUTES",
     "LOG_LEVEL",
     "HEALTH_PORT",
 }
@@ -55,6 +55,7 @@ def test_loads_minimal_config(tmp_path, monkeypatch, azure_env):
     assert settings.batch_max_messages == 100
     assert settings.max_attachment_bytes == 8 * 1024 * 1024
     assert settings.include_mime_content is False
+    assert settings.ignore_newer_than_minutes is None
 
 
 def test_polling_fields_configurable(tmp_path, monkeypatch, azure_env):
@@ -65,7 +66,8 @@ def test_polling_fields_configurable(tmp_path, monkeypatch, azure_env):
         "source_folder: Bankbestätigungen\n"
         "batch_max_messages: 50\n"
         "max_attachment_bytes: 1048576\n"
-        "include_mime_content: true\n",
+        "include_mime_content: true\n"
+        "ignore_newer_than_minutes: 10\n",
     )
 
     settings = Settings()
@@ -74,6 +76,16 @@ def test_polling_fields_configurable(tmp_path, monkeypatch, azure_env):
     assert settings.batch_max_messages == 50
     assert settings.max_attachment_bytes == 1048576
     assert settings.include_mime_content is True
+    assert settings.ignore_newer_than_minutes == 10
+
+
+def test_non_positive_ignore_newer_than_minutes_rejected(tmp_path, monkeypatch, azure_env):
+    _write_config(
+        tmp_path, monkeypatch, "mailbox: inbox@example.com\nignore_newer_than_minutes: 0\n"
+    )
+
+    with pytest.raises(ValidationError):
+        Settings()
 
 
 def test_empty_azure_credential_rejected(tmp_path, monkeypatch, azure_env):
@@ -99,34 +111,6 @@ def test_naive_ignore_received_before_coerced_to_utc(tmp_path, monkeypatch, azur
     assert settings.ignore_received_before == datetime.datetime(
         2026, 6, 26, 8, 0, 0, tzinfo=datetime.UTC
     )
-
-
-def test_naive_ignore_received_after_coerced_to_utc(tmp_path, monkeypatch, azure_env):
-    _write_config(
-        tmp_path,
-        monkeypatch,
-        "mailbox: inbox@example.com\nignore_received_after: 2026-06-30T08:00:00\n",
-    )
-
-    settings = Settings()
-
-    assert settings.ignore_received_after == datetime.datetime(
-        2026, 6, 30, 8, 0, 0, tzinfo=datetime.UTC
-    )
-
-
-def test_crossed_received_bounds_rejected(tmp_path, monkeypatch, azure_env):
-    """before > after is a window no mail can fall into."""
-    _write_config(
-        tmp_path,
-        monkeypatch,
-        "mailbox: inbox@example.com\n"
-        "ignore_received_before: 2026-06-30T08:00:00Z\n"
-        "ignore_received_after: 2026-06-26T08:00:00Z\n",
-    )
-
-    with pytest.raises(ValidationError):
-        Settings()
 
 
 def test_azure_keys_in_yaml_rejected(tmp_path, monkeypatch, azure_env):

@@ -77,8 +77,9 @@ Stdlib `logging`, configurable level, to stdout (for container log capture).
 - `ignore_received_before` (config, optional) lower-bounds the listing for
   users who point the connector at an old, full folder they do not want
   backfilled.
-- `ignore_received_after` (config, optional) upper-bounds the listing the
-  same way: mail received after that fixed instant is never listed.
+- `ignore_newer_than_minutes` (config, optional) upper-bounds the listing
+  at `now - N minutes`, recomputed every cycle: fresh mail stays in the
+  folder, unlisted, until it is old enough.
 - History: earlier designs used a `receivedDateTime` cursor with strict-`>`
   advancement. Graph truncates `receivedDateTime` to whole seconds in
   responses while filtering on finer stored values, which made every cursor

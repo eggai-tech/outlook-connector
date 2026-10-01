@@ -15,7 +15,7 @@ import os
 from datetime import UTC, datetime
 from typing import Literal
 
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import BaseModel, Field, field_validator
 from pydantic_settings import (
     BaseSettings,
     PydanticBaseSettingsSource,
@@ -84,15 +84,15 @@ class Settings(BaseSettings):
     # bridged — every rescan re-emits anything still present, and consumers
     # dedupe. Set this to keep an old, full folder from being backfilled.
     ignore_received_before: datetime | None = None
-    # Optional upper bound (ISO 8601): mail received after this instant is
-    # never listed or published. A fixed instant, not a moving window — it
-    # does not follow the clock.
-    ignore_received_after: datetime | None = None
+    # Optional moving upper bound: mail received in the last N minutes is
+    # not listed or published yet. Evaluated against the clock on every poll
+    # cycle, so held-back mail is picked up once it is old enough.
+    ignore_newer_than_minutes: float | None = Field(default=None, gt=0)
     # Port for the HTTP health/status endpoint (GET /health), bound on all
     # interfaces. null disables the endpoint entirely.
     health_port: int | None = Field(default=8000, gt=0, le=65535)
 
-    @field_validator("ignore_received_before", "ignore_received_after")
+    @field_validator("ignore_received_before")
     @classmethod
     def _bound_must_be_aware(cls, value: datetime | None) -> datetime | None:
         """Coerce a naive timestamp to UTC.
@@ -104,17 +104,6 @@ class Settings(BaseSettings):
         if value is not None and value.tzinfo is None:
             return value.replace(tzinfo=UTC)
         return value
-
-    @model_validator(mode="after")
-    def _bounds_must_not_cross(self) -> "Settings":
-        """Reject a window that can never match any mail."""
-        before, after = self.ignore_received_before, self.ignore_received_after
-        if before is not None and after is not None and before > after:
-            raise ValueError(
-                "ignore_received_before must not be later than ignore_received_after"
-            )
-        return self
-
     log_level: str = "INFO"
     bus: BusConfig = Field(default_factory=BusConfig)
 
