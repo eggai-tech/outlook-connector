@@ -16,6 +16,7 @@ _SETTINGS_ENV = {
     "MAX_ATTACHMENT_BYTES",
     "INCLUDE_MIME_CONTENT",
     "IGNORE_RECEIVED_BEFORE",
+    "IGNORE_NEWER_THAN_MINUTES",
     "LOG_LEVEL",
     "HEALTH_PORT",
 }
@@ -54,6 +55,7 @@ def test_loads_minimal_config(tmp_path, monkeypatch, azure_env):
     assert settings.batch_max_messages == 100
     assert settings.max_attachment_bytes == 8 * 1024 * 1024
     assert settings.include_mime_content is False
+    assert settings.ignore_newer_than_minutes is None
 
 
 def test_polling_fields_configurable(tmp_path, monkeypatch, azure_env):
@@ -64,7 +66,8 @@ def test_polling_fields_configurable(tmp_path, monkeypatch, azure_env):
         "source_folder: Bankbestätigungen\n"
         "batch_max_messages: 50\n"
         "max_attachment_bytes: 1048576\n"
-        "include_mime_content: true\n",
+        "include_mime_content: true\n"
+        "ignore_newer_than_minutes: 10\n",
     )
 
     settings = Settings()
@@ -73,6 +76,16 @@ def test_polling_fields_configurable(tmp_path, monkeypatch, azure_env):
     assert settings.batch_max_messages == 50
     assert settings.max_attachment_bytes == 1048576
     assert settings.include_mime_content is True
+    assert settings.ignore_newer_than_minutes == 10
+
+
+def test_non_positive_ignore_newer_than_minutes_rejected(tmp_path, monkeypatch, azure_env):
+    _write_config(
+        tmp_path, monkeypatch, "mailbox: inbox@example.com\nignore_newer_than_minutes: 0\n"
+    )
+
+    with pytest.raises(ValidationError):
+        Settings()
 
 
 def test_empty_azure_credential_rejected(tmp_path, monkeypatch, azure_env):

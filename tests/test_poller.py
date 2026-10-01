@@ -27,6 +27,7 @@ def test_rescan_publishes_unseen_oldest_first():
     assert listing["ids_only"] is True
     assert listing["oldest_first"] is True
     assert listing["since"] is None
+    assert listing["until"] is None
     # full content is fetched per message, after the cheap listing
     assert client.get_email_calls == ["older", "newer"]
 
@@ -94,6 +95,18 @@ def test_ignore_received_before_is_passed_as_since():
     poller.poll_mailbox()
 
     assert client.search_calls[0]["since"] == _at(0)
+
+
+def test_ignore_newer_than_minutes_moves_with_the_clock():
+    """The upper bound is recomputed from the clock on every cycle."""
+    clock = iter([_at(600), _at(660)])
+    client = FakeClient()
+    poller = Poller(client=client, now=lambda: next(clock), ignore_newer_than_minutes=5)
+
+    poller.poll_mailbox()
+    poller.poll_mailbox()
+
+    assert [call["until"] for call in client.search_calls] == [_at(300), _at(360)]
 
 
 def test_source_folder_is_passed_through():

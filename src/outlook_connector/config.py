@@ -84,6 +84,10 @@ class Settings(BaseSettings):
     # bridged — every rescan re-emits anything still present, and consumers
     # dedupe. Set this to keep an old, full folder from being backfilled.
     ignore_received_before: datetime | None = None
+    # Optional moving upper bound: mail received in the last N minutes is
+    # not listed or published yet. Evaluated against the clock on every poll
+    # cycle, so held-back mail is picked up once it is old enough.
+    ignore_newer_than_minutes: float | None = Field(default=None, gt=0)
     # Port for the HTTP health/status endpoint (GET /health), bound on all
     # interfaces. null disables the endpoint entirely.
     health_port: int | None = Field(default=8000, gt=0, le=65535)
