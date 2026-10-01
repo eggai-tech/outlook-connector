@@ -38,6 +38,7 @@ def build_poller(heartbeat=None):
         max_attachment_bytes=settings.max_attachment_bytes,
         include_mime_content=settings.include_mime_content,
         ignore_received_before=settings.ignore_received_before,
+        ignore_newer_than_minutes=settings.ignore_newer_than_minutes,
         **kwargs,
     )
 

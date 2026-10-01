@@ -37,6 +37,12 @@ poll_interval_seconds: 60
 # internet_message_id. Set this to keep an old, full folder from backfilling.
 # ignore_received_before: 2026-06-26T08:00:00Z
 
+# Optional minimum age, in minutes: mail received more recently than this is
+# not listed or published yet. Evaluated on every poll cycle, so held-back
+# mail is picked up as soon as it is old enough. Leave commented to bridge
+# mail as soon as it arrives.
+# ignore_newer_than_minutes: 10
+
 # HTTP health/status endpoint: GET /health reports uptime, Graph/bus status
 # and the last poll cycle. 200 while the poll loop ticks, 503 once it is
 # wedged. Default 8000; set to null to disable.
