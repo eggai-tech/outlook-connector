@@ -126,6 +126,43 @@ def test_search_email_ids_only_selects_minimal_fields():
     assert route.calls.last.request.url.params["$select"] == "id,receivedDateTime"
 
 
+@respx.mock
+def test_search_email_modified_until_leads_with_received_clause():
+    """Graph needs the $orderby property (receivedDateTime) first in $filter."""
+    route = respx.get(f"{BASE}/me/messages").mock(
+        return_value=httpx.Response(200, json={"value": []})
+    )
+    list(
+        make_client().search_email(
+            subject_contains="ABC", modified_until=datetime(2026, 6, 1)
+        )
+    )
+    assert route.calls.last.request.url.params["$filter"] == (
+        "receivedDateTime ge 1900-01-01T00:00:00Z"
+        " and contains(subject,'ABC')"
+        " and lastModifiedDateTime le 2026-06-01T00:00:00.000000Z"
+    )
+
+
+@respx.mock
+def test_search_email_modified_until_reuses_real_received_bound():
+    route = respx.get(f"{BASE}/me/messages").mock(
+        return_value=httpx.Response(200, json={"value": []})
+    )
+    list(
+        make_client().search_email(
+            sender="a@example.com",
+            since=datetime(2026, 5, 1),
+            modified_until=datetime(2026, 6, 1),
+        )
+    )
+    assert route.calls.last.request.url.params["$filter"] == (
+        "receivedDateTime ge 2026-05-01T00:00:00.000000Z"
+        " and from/emailAddress/address eq 'a@example.com'"
+        " and lastModifiedDateTime le 2026-06-01T00:00:00.000000Z"
+    )
+
+
 def test_search_email_ids_only_rejects_include_headers():
     with pytest.raises(ValueError, match="mutually exclusive"):
         list(make_client().search_email(ids_only=True, include_headers=True))

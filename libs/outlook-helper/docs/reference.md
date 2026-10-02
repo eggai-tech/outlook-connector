@@ -280,6 +280,7 @@ Returns a lazy iterator, newest first.
 | `subject_contains` | `str`                     | `contains(subject,'<text>')`                           |
 | `since`            | `datetime \| str`         | `receivedDateTime ge <iso>`                            |
 | `until`            | `datetime \| str`         | `receivedDateTime le <iso>`                            |
+| `modified_until`   | `datetime \| str`         | `lastModifiedDateTime le <iso>` (see below)            |
 | `unread`           | `bool`                    | `isRead eq false` (True) / `isRead eq true` (False)    |
 | `has_attachments`  | `bool`                    | `hasAttachments eq true/false`                         |
 | `folder`           | `str`                     | scopes to that folder; `None` searches the whole mailbox |
@@ -289,6 +290,10 @@ Returns a lazy iterator, newest first.
   timezone-aware/UTC datetimes for correctness, or pass a pre-formatted ISO 8601
   `str` to control the format yourself.
 - `sender` is an **exact** address match, not a substring.
+- With `modified_until`, the `receivedDateTime` clauses are moved to the front
+  of the filter, and an always-true `receivedDateTime ge 1900-01-01T00:00:00Z`
+  is added when there is none: Graph rejects a filter on other properties
+  unless the `$orderby` property (`receivedDateTime`) leads it.
 - Omitted filters are simply not constrained. With no filters, this lists the
   mailbox (or `folder`) newest-first.
 

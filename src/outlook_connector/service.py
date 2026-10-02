@@ -39,6 +39,7 @@ def build_poller(heartbeat=None):
         include_mime_content=settings.include_mime_content,
         ignore_received_before=settings.ignore_received_before,
         ignore_newer_than_minutes=settings.ignore_newer_than_minutes,
+        ignore_modified_newer_than_minutes=settings.ignore_modified_newer_than_minutes,
         **kwargs,
     )
 

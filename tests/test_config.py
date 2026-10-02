@@ -17,6 +17,7 @@ _SETTINGS_ENV = {
     "INCLUDE_MIME_CONTENT",
     "IGNORE_RECEIVED_BEFORE",
     "IGNORE_NEWER_THAN_MINUTES",
+    "IGNORE_MODIFIED_NEWER_THAN_MINUTES",
     "LOG_LEVEL",
     "HEALTH_PORT",
 }
@@ -56,6 +57,7 @@ def test_loads_minimal_config(tmp_path, monkeypatch, azure_env):
     assert settings.max_attachment_bytes == 8 * 1024 * 1024
     assert settings.include_mime_content is False
     assert settings.ignore_newer_than_minutes is None
+    assert settings.ignore_modified_newer_than_minutes is None
 
 
 def test_polling_fields_configurable(tmp_path, monkeypatch, azure_env):
@@ -67,7 +69,8 @@ def test_polling_fields_configurable(tmp_path, monkeypatch, azure_env):
         "batch_max_messages: 50\n"
         "max_attachment_bytes: 1048576\n"
         "include_mime_content: true\n"
-        "ignore_newer_than_minutes: 10\n",
+        "ignore_newer_than_minutes: 10\n"
+        "ignore_modified_newer_than_minutes: 15\n",
     )
 
     settings = Settings()
@@ -77,6 +80,7 @@ def test_polling_fields_configurable(tmp_path, monkeypatch, azure_env):
     assert settings.max_attachment_bytes == 1048576
     assert settings.include_mime_content is True
     assert settings.ignore_newer_than_minutes == 10
+    assert settings.ignore_modified_newer_than_minutes == 15
 
 
 def test_non_positive_ignore_newer_than_minutes_rejected(tmp_path, monkeypatch, azure_env):

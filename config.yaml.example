@@ -43,6 +43,14 @@ poll_interval_seconds: 60
 # mail as soon as it arrives.
 # ignore_newer_than_minutes: 10
 
+# Like ignore_newer_than_minutes, but measured from the message's last change
+# (Graph lastModifiedDateTime) instead of its arrival in the mailbox. Use it to
+# wait until mail has sat in source_folder for N minutes. Moving mail into
+# the folder counts as a change — and so does marking it read, flagging or
+# categorizing it, each of which restarts the wait (mail already published
+# is then published again; consumers dedupe on internet_message_id).
+# ignore_modified_newer_than_minutes: 10
+
 # HTTP health/status endpoint: GET /health reports uptime, Graph/bus status
 # and the last poll cycle. 200 while the poll loop ticks, 503 once it is
 # wedged. Default 8000; set to null to disable.
