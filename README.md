@@ -39,6 +39,10 @@ connector itself never mutates the mailbox. Point the connector at an old,
 full folder you don't want backfilled with `ignore_received_before`. To hold
 back fresh mail, set `ignore_newer_than_minutes`: each cycle skips anything
 received in the last N minutes and picks it up once it is old enough.
+`ignore_modified_newer_than_minutes` does the same from the message's last
+change (`lastModifiedDateTime`), e.g. to wait until mail has sat in the folder
+for N minutes; marking it read, flagging or categorizing it restarts the wait
+and, if it was already published, publishes it again.
 
 ## The bus contract
 

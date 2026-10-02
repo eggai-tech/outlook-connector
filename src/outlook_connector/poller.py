@@ -110,6 +110,7 @@ class Poller:
         include_mime_content: bool = False,
         ignore_received_before: datetime.datetime | None = None,
         ignore_newer_than_minutes: float | None = None,
+        ignore_modified_newer_than_minutes: float | None = None,
         heartbeat: Callable[[], None] = _noop,
     ):
         self.heartbeat = heartbeat
@@ -123,6 +124,7 @@ class Poller:
         self.include_mime_content = include_mime_content
         self.ignore_received_before = ignore_received_before
         self.ignore_newer_than_minutes = ignore_newer_than_minutes
+        self.ignore_modified_newer_than_minutes = ignore_modified_newer_than_minutes
         # Ids published this process lifetime that are still in the folder.
         self._published_ids: set[str] = set()
 
@@ -138,6 +140,7 @@ class Poller:
             folder=self.source_folder,
             since=self.ignore_received_before,
             until=self._newest_allowed(),
+            modified_until=self._newest_modified_allowed(),
             oldest_first=True,
             ids_only=True,
         ):
@@ -181,6 +184,14 @@ class Poller:
         if self.ignore_newer_than_minutes is None:
             return None
         return self.now() - datetime.timedelta(minutes=self.ignore_newer_than_minutes)
+
+    def _newest_modified_allowed(self) -> datetime.datetime | None:
+        """Last-change bound for this cycle: now minus the configured minimum age."""
+        if self.ignore_modified_newer_than_minutes is None:
+            return None
+        return self.now() - datetime.timedelta(
+            minutes=self.ignore_modified_newer_than_minutes
+        )
 
     def mark_published(self, message: OutlookMessage) -> None:
         """Record a successfully published message so rescans skip it."""

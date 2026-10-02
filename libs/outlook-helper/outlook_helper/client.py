@@ -139,6 +139,7 @@ class OutlookClient:
         until: datetime | str | None = None,
         since_exclusive: datetime | str | None = None,
         until_exclusive: datetime | str | None = None,
+        modified_until: datetime | str | None = None,
         unread: bool | None = None,
         has_attachments: bool | None = None,
         folder: str | None = None,
@@ -160,6 +161,9 @@ class OutlookClient:
             unread=unread,
             has_attachments=has_attachments,
         )
+        if modified_until is not None:
+            clauses = _received_first(clauses)
+            clauses.append(f"lastModifiedDateTime le {_fmt_dt(modified_until)}")
         if folder is not None:
             folder_id = self._folders.resolve(folder)
             path = f"{self._base_path}/mailFolders/{folder_id}/messages"
@@ -471,6 +475,22 @@ def _fmt_dt(value: datetime | str) -> str:
             value = value.astimezone(timezone.utc)
         return value.strftime("%Y-%m-%dT%H:%M:%S.%fZ")
     return value
+
+
+# Always true: a receivedDateTime clause that constrains nothing.
+_ANY_RECEIVED = "receivedDateTime ge 1900-01-01T00:00:00Z"
+
+
+def _received_first(clauses: list[str]) -> list[str]:
+    """Move the receivedDateTime clauses to the front, adding one if missing.
+
+    The listing is always ordered by receivedDateTime, and Graph rejects a
+    $filter on other properties (InefficientFilter) unless the $orderby
+    property also appears in it, ahead of the rest.
+    """
+    received = [c for c in clauses if c.startswith("receivedDateTime ")]
+    others = [c for c in clauses if not c.startswith("receivedDateTime ")]
+    return (received or [_ANY_RECEIVED]) + others
 
 
 def _build_filter_clauses(

@@ -80,6 +80,13 @@ Stdlib `logging`, configurable level, to stdout (for container log capture).
 - `ignore_newer_than_minutes` (config, optional) upper-bounds the listing
   at `now - N minutes`, recomputed every cycle: fresh mail stays in the
   folder, unlisted, until it is old enough.
+- `ignore_modified_newer_than_minutes` (config, optional) adds
+  `lastModifiedDateTime le now - N minutes` to the listing's `$filter`,
+  recomputed every cycle. Graph only accepts it behind a `receivedDateTime`
+  clause (the `$orderby` property), which outlook-helper supplies. A
+  published message that changes again (read, flagged, categorized) drops
+  out of the listing, is pruned from the published-id set, and is published
+  again once it settles — consumers dedupe.
 - History: earlier designs used a `receivedDateTime` cursor with strict-`>`
   advancement. Graph truncates `receivedDateTime` to whole seconds in
   responses while filtering on finer stored values, which made every cursor
