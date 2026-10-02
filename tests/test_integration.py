@@ -104,7 +104,7 @@ def test_full_poll_cycle_publishes_wire_correct_events():
     assert (summary.fetched, summary.published, summary.dropped) == (2, 2, 0)
     assert summary.error is None
     assert listing.calls.last.request.url.params["$select"] == "id,receivedDateTime"
-    assert poller._published_ids == {"m1", "m2"}
+    assert poller._published_at.keys() == {"m1", "m2"}
 
     # what a consumer receives after a JSON round trip (the wire format)
     events = [type(e).model_validate_json(e.model_dump_json()) for e in channel.published]

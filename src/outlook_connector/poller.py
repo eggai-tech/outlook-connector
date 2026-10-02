@@ -29,6 +29,9 @@ logger = structlog.getLogger()
 class PollSummary(BaseModel):
     """Per-cycle observability record (also emitted to the log)."""
 
+    # messages the listing returned (after the received/modified filters),
+    # published before or not: what is sitting in the folder right now
+    listed: int = 0
     fetched: int = 0
     published: int = 0
     # emails skipped because publishing (or attachment fetch) failed mid-batch
@@ -86,8 +89,11 @@ class Poller:
     oldest unseen messages in full. There is no cursor and no durable state:
     a bounded in-memory set of already-published ids suppresses re-fetching
     within a process lifetime, and is pruned to the ids still present in the
-    folder, so it can never grow past the folder size. A restart empties the
-    set and everything still in the folder is published again — delivery is
+    folder, so it can never grow past the folder size. With
+    ``republish_after_minutes`` an id also expires from the set that long
+    after it was published, so mail that stays in the folder is offered
+    again. A restart empties the set and everything still in the folder is
+    published again — delivery is
     **at least once**, and consumers must be idempotent (dedupe on
     ``internet_message_id``).
 
@@ -111,6 +117,7 @@ class Poller:
         ignore_received_before: datetime.datetime | None = None,
         ignore_newer_than_minutes: float | None = None,
         ignore_modified_newer_than_minutes: float | None = None,
+        republish_after_minutes: float | None = None,
         heartbeat: Callable[[], None] = _noop,
     ):
         self.heartbeat = heartbeat
@@ -125,8 +132,12 @@ class Poller:
         self.ignore_received_before = ignore_received_before
         self.ignore_newer_than_minutes = ignore_newer_than_minutes
         self.ignore_modified_newer_than_minutes = ignore_modified_newer_than_minutes
-        # Ids published this process lifetime that are still in the folder.
-        self._published_ids: set[str] = set()
+        self.republish_after_minutes = republish_after_minutes
+        # Ids published this process lifetime that are still in the folder,
+        # each with when it was published.
+        self._published_at: dict[str, datetime.datetime] = {}
+        # Size of the most recent listing; the service puts it on the summary.
+        self.last_listed = 0
 
     def poll_mailbox(self) -> list[OutlookMessage]:
         """One rescan: list the folder, fetch the oldest unseen batch in full.
@@ -150,9 +161,12 @@ class Poller:
         # The listing is the truth: mail moved out of the folder needs no
         # memory (and if a human moves it back, it re-publishes and the
         # consumer dedupes). This also bounds the set by the folder size.
-        self._published_ids &= {m.id for m in listed}
+        present = {m.id for m in listed}
+        self._published_at = {i: t for i, t in self._published_at.items() if i in present}
+        self._forget_expired()
+        self.last_listed = len(listed)
 
-        unseen = [m for m in listed if m.id not in self._published_ids]
+        unseen = [m for m in listed if m.id not in self._published_at]
         unseen.sort(key=lambda m: (m.received_at is not None, m.received_at))
         if self.batch_max_messages is not None:
             unseen = unseen[: self.batch_max_messages]
@@ -193,9 +207,21 @@ class Poller:
             minutes=self.ignore_modified_newer_than_minutes
         )
 
+    def _forget_expired(self) -> None:
+        """Drop ids published at least ``republish_after_minutes`` ago.
+
+        Mail still in the folder that long after it was published is offered
+        again: whoever was meant to move it out did not, so the publish may
+        have been lost downstream.
+        """
+        if self.republish_after_minutes is None:
+            return
+        due = self.now() - datetime.timedelta(minutes=self.republish_after_minutes)
+        self._published_at = {i: t for i, t in self._published_at.items() if t > due}
+
     def mark_published(self, message: OutlookMessage) -> None:
         """Record a successfully published message so rescans skip it."""
-        self._published_ids.add(message.id)
+        self._published_at[message.id] = self.now()
 
     def fetch_attachments(self, message: OutlookMessage) -> list[OutlookAttachment]:
         """Fetch per-attachment metadata + content, only for attachment-bearing mail.

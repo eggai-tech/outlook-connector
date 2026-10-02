@@ -43,6 +43,10 @@ received in the last N minutes and picks it up once it is old enough.
 change (`lastModifiedDateTime`), e.g. to wait until mail has sat in the folder
 for N minutes; marking it read, flagging or categorizing it restarts the wait
 and, if it was already published, publishes it again.
+For a folder a downstream consumer is meant to empty, `republish_after_minutes`
+publishes mail again that is still there N minutes after it was published, and
+every N minutes after that while it stays: if the consumer lost the event, the
+mail is offered again without restarting the connector.
 
 ## The bus contract
 
@@ -176,7 +180,7 @@ curl -s localhost:38000/health   # 38000 is the compose host mapping
   "poll_interval_seconds": 60.0,
   "last_cycle_completed_at": "2026-08-31T13:00:00Z",
   "last_successful_cycle_at": "2026-08-31T13:00:00Z",
-  "last_cycle": {"fetched": 2, "published": 2, "dropped": 0, "error": null, "error_source": null},
+  "last_cycle": {"listed": 2, "fetched": 2, "published": 2, "dropped": 0, "error": null, "error_source": null},
   "graph": {"status": "ok", "last_success_at": "2026-08-31T13:00:00Z", "last_error": null, "last_error_at": null},
   "bus": {"status": "ok", "last_success_at": "2026-08-31T13:00:00Z", "last_error": null, "last_error_at": null}
 }

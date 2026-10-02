@@ -167,13 +167,14 @@ async def test_http_endpoint_serves_snapshot():
 
     monitor, clock = make_monitor()
     async with TestClient(TestServer(build_app(monitor))) as client:
-        monitor.record_cycle(PollSummary(fetched=1, published=1))
+        monitor.record_cycle(PollSummary(listed=4, fetched=1, published=1))
 
         response = await client.get("/health")
         assert response.status == 200
         payload = json.loads(await response.text())
         assert payload["status"] == "ok"
         assert payload["last_cycle"]["published"] == 1
+        assert payload["last_cycle"]["listed"] == 4
         # unauthenticated endpoint: no identity in the payload
         assert "mailbox" not in payload
         assert "source_folder" not in payload

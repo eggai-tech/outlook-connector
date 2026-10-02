@@ -40,6 +40,7 @@ def build_poller(heartbeat=None):
         ignore_received_before=settings.ignore_received_before,
         ignore_newer_than_minutes=settings.ignore_newer_than_minutes,
         ignore_modified_newer_than_minutes=settings.ignore_modified_newer_than_minutes,
+        republish_after_minutes=settings.republish_after_minutes,
         **kwargs,
     )
 
@@ -87,6 +88,7 @@ async def run_workflow(context) -> PollSummary:
         logger.warning("Poll fetch failed", error=summary.error)
         return summary
 
+    summary.listed = poller.last_listed
     summary.fetched = len(messages)
     fetched_at = poller.now()
 
@@ -110,6 +112,7 @@ async def run_workflow(context) -> PollSummary:
 
     logger.info(
         "Poll cycle complete",
+        listed=summary.listed,
         fetched=summary.fetched,
         published=summary.published,
         dropped=summary.dropped,
