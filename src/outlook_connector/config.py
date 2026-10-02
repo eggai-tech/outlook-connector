@@ -94,6 +94,12 @@ class Settings(BaseSettings):
     # marking it read, flagging or categorizing it — each restarts the wait,
     # and mail already published is published again once it settles.
     ignore_modified_newer_than_minutes: float | None = Field(default=None, gt=0)
+    # Optional: mail still in the folder N minutes after it was published is
+    # published again, and again every N minutes while it stays. For a folder
+    # that a downstream consumer is meant to empty, so mail that stays there
+    # means its publish was lost. Unset, a message is published once per
+    # process lifetime while it sits in the folder unchanged.
+    republish_after_minutes: float | None = Field(default=None, gt=0)
     # Port for the HTTP health/status endpoint (GET /health), bound on all
     # interfaces. null disables the endpoint entirely.
     health_port: int | None = Field(default=8000, gt=0, le=65535)

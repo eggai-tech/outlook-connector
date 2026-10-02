@@ -70,10 +70,65 @@ def test_pruning_forgets_mail_that_left_the_folder():
 
     client.messages = []  # the mover filed it away
     assert poller.poll_mailbox() == []
-    assert poller._published_ids == set()
+    assert poller._published_at.keys() == set()
 
     client.messages = [message]  # a human dragged it back
     assert [m.id for m in poller.poll_mailbox()] == ["m1"]
+
+
+class _Clock:
+    def __init__(self, at: datetime.datetime):
+        self.at = at
+
+    def __call__(self) -> datetime.datetime:
+        return self.at
+
+
+def test_republish_after_minutes_offers_mail_still_in_the_folder_again():
+    """Mail a consumer was meant to move out, still here N minutes after it was
+    published: the publish may have been lost, so it is offered again — and
+    again every N minutes while it stays."""
+    message = make_message("m1", received_at=_at(10))
+    client = FakeClient(messages=[message])
+    clock = _Clock(_at(0))
+    poller = Poller(client=client, now=clock, republish_after_minutes=5)
+    poller.mark_published(message)
+
+    clock.at = _at(299)
+    assert poller.poll_mailbox() == []
+
+    clock.at = _at(300)
+    assert [m.id for m in poller.poll_mailbox()] == ["m1"]
+    poller.mark_published(message)
+
+    clock.at = _at(599)
+    assert poller.poll_mailbox() == []
+    clock.at = _at(600)
+    assert [m.id for m in poller.poll_mailbox()] == ["m1"]
+
+
+def test_without_republish_after_minutes_mail_is_offered_once():
+    message = make_message("m1", received_at=_at(10))
+    client = FakeClient(messages=[message])
+    clock = _Clock(_at(0))
+    poller = Poller(client=client, now=clock)
+    poller.mark_published(message)
+
+    clock.at = _at(10 * 24 * 3600)
+    assert poller.poll_mailbox() == []
+
+
+def test_last_listed_counts_the_whole_listing_published_or_not():
+    """What sits in the folder after the filters, not only what is new: on a
+    folder a consumer is meant to empty, that is the number to alert on."""
+    cohort = [make_message(f"m{i}", received_at=_at(10 + i)) for i in range(3)]
+    client = FakeClient(messages=cohort)
+    poller = Poller(client=client, batch_max_messages=1)
+    poller.mark_published(cohort[0])
+
+    poller.poll_mailbox()
+
+    assert poller.last_listed == 3
 
 
 def test_batch_bound_takes_oldest_unseen():

@@ -36,14 +36,17 @@ def test_publishes_envelopes_and_marks_published():
     summary = asyncio.run(run_workflow(context))
 
     assert (summary.fetched, summary.published, summary.dropped) == (2, 2, 0)
+    assert summary.listed == 2
     assert summary.error is None
     assert [e.data.email.id for e in channel.published] == ["m1", "m2"]
     assert all(e.type == EMAIL_RECEIVED for e in channel.published)
     assert channel.published[1].data.email.attachments[0].file_name == "doc.pdf"
     assert all(e.data.fetched_at == _at(100) for e in channel.published)
-    assert context["poller"]._published_ids == {"m1", "m2"}
-    # rescan with everything marked: the next cycle is quiet
-    assert asyncio.run(run_workflow(context)).published == 0
+    assert context["poller"]._published_at.keys() == {"m1", "m2"}
+    # rescan with everything marked: the next cycle is quiet, but the mail is
+    # still in the folder and still counted
+    quiet = asyncio.run(run_workflow(context))
+    assert (quiet.listed, quiet.published) == (2, 0)
 
 
 def test_publish_failure_stops_batch_at_last_success():
@@ -64,7 +67,7 @@ def test_publish_failure_stops_batch_at_last_success():
     assert summary.error_source == "bus"
     assert [e.data.email.id for e in channel.published] == ["m1"]
     # only the published message is marked: m2 and m3 retry on the next rescan
-    assert context["poller"]._published_ids == {"m1"}
+    assert context["poller"]._published_at.keys() == {"m1"}
 
 
 def test_graph_error_publishes_nothing_and_marks_nothing():
@@ -81,4 +84,4 @@ def test_graph_error_publishes_nothing_and_marks_nothing():
     assert "ConnectError" in summary.error
     assert summary.error_source == "graph"
     assert channel.published == []
-    assert context["poller"]._published_ids == set()
+    assert context["poller"]._published_at.keys() == set()

@@ -62,6 +62,7 @@ class ProbeStatus(BaseModel):
 class CycleStats(BaseModel):
     """Identity-free view of a :class:`PollSummary` for the public payload."""
 
+    listed: int
     fetched: int
     published: int
     dropped: int
@@ -79,6 +80,7 @@ def _public_error(summary: PollSummary) -> str | None:
 
 def _cycle_stats(summary: PollSummary) -> CycleStats:
     return CycleStats(
+        listed=summary.listed,
         fetched=summary.fetched,
         published=summary.published,
         dropped=summary.dropped,

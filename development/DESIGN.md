@@ -87,6 +87,15 @@ Stdlib `logging`, configurable level, to stdout (for container log capture).
   published message that changes again (read, flagged, categorized) drops
   out of the listing, is pruned from the published-id set, and is published
   again once it settles — consumers dedupe.
+- `republish_after_minutes` (config, optional) keeps when each id was
+  published and drops it from the set that long after: mail still in the
+  folder is published again every N minutes. It is for a folder a downstream
+  consumer is meant to empty, where mail that stays means its event was lost;
+  without it a lost event is only recovered by a restart.
+- Each cycle reports `listed`, the size of the filtered listing, published
+  or not, on the "Poll cycle complete" log line and in `/health`
+  `last_cycle`. On a folder a consumer drains, a `listed` that stays above
+  zero is mail nobody is moving out.
 - History: earlier designs used a `receivedDateTime` cursor with strict-`>`
   advancement. Graph truncates `receivedDateTime` to whole seconds in
   responses while filtering on finer stored values, which made every cursor

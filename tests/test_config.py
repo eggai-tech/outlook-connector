@@ -58,6 +58,7 @@ def test_loads_minimal_config(tmp_path, monkeypatch, azure_env):
     assert settings.include_mime_content is False
     assert settings.ignore_newer_than_minutes is None
     assert settings.ignore_modified_newer_than_minutes is None
+    assert settings.republish_after_minutes is None
 
 
 def test_polling_fields_configurable(tmp_path, monkeypatch, azure_env):
@@ -70,7 +71,8 @@ def test_polling_fields_configurable(tmp_path, monkeypatch, azure_env):
         "max_attachment_bytes: 1048576\n"
         "include_mime_content: true\n"
         "ignore_newer_than_minutes: 10\n"
-        "ignore_modified_newer_than_minutes: 15\n",
+        "ignore_modified_newer_than_minutes: 15\n"
+        "republish_after_minutes: 120\n",
     )
 
     settings = Settings()
@@ -81,12 +83,20 @@ def test_polling_fields_configurable(tmp_path, monkeypatch, azure_env):
     assert settings.include_mime_content is True
     assert settings.ignore_newer_than_minutes == 10
     assert settings.ignore_modified_newer_than_minutes == 15
+    assert settings.republish_after_minutes == 120
 
 
 def test_non_positive_ignore_newer_than_minutes_rejected(tmp_path, monkeypatch, azure_env):
     _write_config(
         tmp_path, monkeypatch, "mailbox: inbox@example.com\nignore_newer_than_minutes: 0\n"
     )
+
+    with pytest.raises(ValidationError):
+        Settings()
+
+
+def test_non_positive_republish_after_minutes_rejected(tmp_path, monkeypatch, azure_env):
+    _write_config(tmp_path, monkeypatch, "mailbox: inbox@example.com\nrepublish_after_minutes: 0\n")
 
     with pytest.raises(ValidationError):
         Settings()
