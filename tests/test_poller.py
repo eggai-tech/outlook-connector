@@ -46,6 +46,40 @@ def test_seen_set_suppresses_republish_within_process():
     assert client.get_email_calls == ["m1"]  # no second full fetch either
 
 
+def test_mail_modified_in_the_folder_is_offered_again():
+    """A human changes a mail that is still in the folder, e.g. tags it with a
+    category a consumer acts on: its lastModifiedDateTime moves on, and the
+    current version is published again, once."""
+    message = make_message("m1", received_at=_at(10)).model_copy(
+        update={"last_modified_at": _at(10)}
+    )
+    client = FakeClient(messages=[message])
+    poller = Poller(client=client)
+    poller.mark_published(poller.poll_mailbox()[0])
+
+    assert poller.poll_mailbox() == []  # unchanged: quiet
+
+    tagged = message.model_copy(update={"last_modified_at": _at(60), "categories": ["Needs review"]})
+    client.messages = [tagged]
+    (again,) = poller.poll_mailbox()
+    assert again.categories == ["Needs review"]
+    poller.mark_published(again)
+
+    assert poller.poll_mailbox() == []  # that version is published now
+    assert client.get_email_calls == ["m1", "m1"]
+
+
+def test_without_a_change_stamp_mail_is_offered_once_per_stay():
+    """No lastModifiedDateTime to compare (an older Graph shape): the
+    once-per-stay behaviour is kept rather than republishing every cycle."""
+    message = make_message("m1", received_at=_at(10))
+    client = FakeClient(messages=[message])
+    poller = Poller(client=client)
+    poller.mark_published(poller.poll_mailbox()[0])
+
+    assert poller.poll_mailbox() == []
+
+
 def test_restart_republishes_whatever_is_still_in_the_folder():
     """At-least-once: the seen-set is process-local by design; a fresh poller
     re-emits everything still present and consumers dedupe."""

@@ -8,6 +8,8 @@
   "webLink": "https://outlook.office365.com/owa/?ItemID=AAMkAGI1",
   "conversationId": "CONV123",
   "parentFolderId": "FOLDER_INBOX",
+  "categories": ["Needs review"],
+  "lastModifiedDateTime": "2026-06-18T10:15:00Z",
   "receivedDateTime": "2026-06-18T09:30:00Z",
   "sentDateTime": "2026-06-18T09:29:00Z",
   "from": {

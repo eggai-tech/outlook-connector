@@ -123,7 +123,7 @@ def test_search_email_ids_only_selects_minimal_fields():
         return_value=httpx.Response(200, json={"value": [{"id": "1"}]})
     )
     list(make_client().search_email(ids_only=True))
-    assert route.calls.last.request.url.params["$select"] == "id,receivedDateTime"
+    assert route.calls.last.request.url.params["$select"] == "id,receivedDateTime,lastModifiedDateTime"
 
 
 @respx.mock
@@ -208,6 +208,8 @@ def test_search_email_include_headers_applies_full_select():
     list(make_client().search_email(include_headers=True))
     assert route.calls.last.request.url.params["$select"] == _MESSAGE_SELECT
     assert "internetMessageHeaders" in _MESSAGE_SELECT
+    assert "categories" in _MESSAGE_SELECT
+    assert "lastModifiedDateTime" in _MESSAGE_SELECT
 
 
 @respx.mock
