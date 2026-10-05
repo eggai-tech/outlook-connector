@@ -23,6 +23,8 @@ def outlook_message_to_email(
         body_text=content if content_type == "text" else None,
         body_html=content if content_type == "html" else None,
         has_attachments=message.has_attachments,
+        categories=list(message.categories),
+        last_modified_at=message.last_modified_at,
         # body is None for content withheld upstream: item/reference
         # attachments (no bytes to fetch) or over the configured size cap.
         attachments=[

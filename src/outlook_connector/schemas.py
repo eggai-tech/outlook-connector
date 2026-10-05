@@ -58,6 +58,13 @@ class Email(BaseModel):
         False  # can be True even if attachments field is not used and left blank
     )
     attachments: list[EmailAttachment] = []
+    #: Outlook category names on the message, e.g. a tag a human applied to
+    #: ask a consumer for something.
+    categories: list[str] = []
+    #: Graph's ``lastModifiedDateTime``: changes on every modification (a
+    #: move, the read flag, a category), so consumers can tell two published
+    #: versions of the same ``id`` apart.
+    last_modified_at: datetime.datetime | None = None
     #: The raw RFC 822 message, its bytes decoded as latin-1:
     #: ``mime_content.encode("latin-1")`` gives back exactly what Graph served.
     mime_content: str | None = None

@@ -42,7 +42,7 @@ Recipients = Union[RecipientSpec, Iterable[RecipientSpec]]
 _MESSAGE_SELECT = (
     "id,subject,from,toRecipients,ccRecipients,bccRecipients,"
     "receivedDateTime,sentDateTime,bodyPreview,body,isRead,hasAttachments,"
-    "importance,webLink,conversationId,parentFolderId,"
+    "importance,webLink,conversationId,parentFolderId,categories,lastModifiedDateTime,"
     "internetMessageId,internetMessageHeaders"
 )
 
@@ -179,9 +179,10 @@ class OutlookClient:
         if include_headers:
             params["$select"] = _MESSAGE_SELECT
         if ids_only:
-            # id + the sort key, nothing else: a whole-folder listing at
-            # minimal payload cost, for callers that fetch bodies separately.
-            params["$select"] = "id,receivedDateTime"
+            # id, the sort key and the change stamp, nothing else: a
+            # whole-folder listing at minimal payload cost, for callers that
+            # fetch bodies separately and want to see which mail changed.
+            params["$select"] = "id,receivedDateTime,lastModifiedDateTime"
         headers = dict(_PREFER_HTML) if html_body else None
         return self._iter_messages(path, params, top=top, headers=headers)
 

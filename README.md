@@ -30,7 +30,10 @@ message:
 
 Delivery is **at least once**: each cycle rescans the whole source folder
 (a cheap ids-only listing) and publishes whatever it has not published yet,
-oldest first. Nothing durable is kept — a restart re-emits everything still in
+oldest first. A message that changed after it was published — its
+`lastModifiedDateTime` moved on because someone categorized it, flagged it or
+toggled its read state while it sat in the folder — counts as not published
+yet, so a consumer acting on categories sees the tag a human applied in place. Nothing durable is kept — a restart re-emits everything still in
 the folder — so **consumers must be idempotent**, deduping on
 `internet_message_id`. Mail is never lost while it remains in the folder: a
 failed publish is simply found again by the next rescan. In a full deployment
@@ -62,7 +65,10 @@ and a `data` payload of:
 
 `Email`: `id` (Graph immutable id), `internet_message_id` (RFC 822 — the
 natural dedup key for consumers), `from_addresses`, `to_addresses`, `subject`,
-`received_at`, `body_html`/`body_text`, `has_attachments`,
+`received_at`, `body_html`/`body_text`, `has_attachments`, `categories` (the
+Outlook category names on the mail), `last_modified_at` (Graph's
+`lastModifiedDateTime`, which changes on every move, read flag or category, so
+two publishes of the same `id` can be told apart),
 `attachments[{file_name, content_type, size, body}]` (`body` is base64 on the
 wire, and `null` when content is withheld — size cap or item/reference
 attachment), and `mime_content` (see below). Mind the broker's message-size

@@ -1,3 +1,5 @@
+import datetime
+
 from conftest import T0, make_attachment, make_message
 
 from outlook_connector.mapper import outlook_message_to_email
@@ -52,3 +54,22 @@ def test_attachments_mapped_and_contentless_kept_as_metadata():
     assert email.attachments[0].size == len(b"%PDF-1.4")
     # content withheld -> metadata-only entry, not dropped
     assert email.attachments[1].body is None
+
+
+def test_categories_and_last_modified_mapped():
+    modified = T0 + datetime.timedelta(minutes=5)
+    message = make_message("m1").model_copy(
+        update={"categories": ["Needs review"], "last_modified_at": modified}
+    )
+
+    email = outlook_message_to_email(message)
+
+    assert email.categories == ["Needs review"]
+    assert email.last_modified_at == modified
+
+
+def test_no_categories_by_default():
+    email = outlook_message_to_email(make_message("m1"))
+
+    assert email.categories == []
+    assert email.last_modified_at is None

@@ -13,6 +13,8 @@ def test_message_parses_full_graph_payload(load_fixture):
     assert msg.web_link.endswith("AAMkAGI1")
     assert msg.conversation_id == "CONV123"
     assert msg.parent_folder_id == "FOLDER_INBOX"
+    assert msg.categories == ["Needs review"]
+    assert msg.last_modified_at == datetime.fromisoformat("2026-06-18T10:15:00+00:00")
 
 
 def test_message_flattens_sender_and_recipients(load_fixture):
@@ -39,6 +41,8 @@ def test_message_minimal_payload_uses_defaults():
     assert msg.from_ is None
     assert msg.to == []
     assert msg.has_attachments is False
+    assert msg.categories == []
+    assert msg.last_modified_at is None
 
 
 def test_message_parses_internet_message_id_and_headers():

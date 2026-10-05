@@ -65,6 +65,10 @@ class OutlookMessage(GraphModel):
     web_link: str | None = Field(default=None, alias="webLink")
     conversation_id: str | None = Field(default=None, alias="conversationId")
     parent_folder_id: str | None = Field(default=None, alias="parentFolderId")
+    #: Outlook category names applied to the message (the colour tags).
+    categories: list[str] = Field(default_factory=list)
+    #: Changes on any modification: a move, a read flag, a category.
+    last_modified_at: datetime | None = Field(default=None, alias="lastModifiedDateTime")
     internet_message_id: str | None = Field(default=None, alias="internetMessageId")
     internet_message_headers: list[InternetMessageHeader] = Field(
         default_factory=list, alias="internetMessageHeaders"

@@ -92,7 +92,10 @@ class Poller:
     folder, so it can never grow past the folder size. With
     ``republish_after_minutes`` an id also expires from the set that long
     after it was published, so mail that stays in the folder is offered
-    again. A restart empties the set and everything still in the folder is
+    again. A message that *changed* since it was published (its
+    ``lastModifiedDateTime`` moved on: a category applied, the read flag
+    toggled) is offered again too, so a consumer sees the current version of
+    mail that stays in the folder. A restart empties the set and everything still in the folder is
     published again — delivery is
     **at least once**, and consumers must be idempotent (dedupe on
     ``internet_message_id``).
@@ -134,8 +137,10 @@ class Poller:
         self.ignore_modified_newer_than_minutes = ignore_modified_newer_than_minutes
         self.republish_after_minutes = republish_after_minutes
         # Ids published this process lifetime that are still in the folder,
-        # each with when it was published.
+        # each with when it was published, and the version it was published
+        # at (its lastModifiedDateTime then).
         self._published_at: dict[str, datetime.datetime] = {}
+        self._published_version: dict[str, datetime.datetime | None] = {}
         # Size of the most recent listing; the service puts it on the summary.
         self.last_listed = 0
 
@@ -164,9 +169,12 @@ class Poller:
         present = {m.id for m in listed}
         self._published_at = {i: t for i, t in self._published_at.items() if i in present}
         self._forget_expired()
+        self._published_version = {
+            i: v for i, v in self._published_version.items() if i in self._published_at
+        }
         self.last_listed = len(listed)
 
-        unseen = [m for m in listed if m.id not in self._published_at]
+        unseen = [m for m in listed if not self._is_published(m)]
         unseen.sort(key=lambda m: (m.received_at is not None, m.received_at))
         if self.batch_max_messages is not None:
             unseen = unseen[: self.batch_max_messages]
@@ -219,9 +227,19 @@ class Poller:
         due = self.now() - datetime.timedelta(minutes=self.republish_after_minutes)
         self._published_at = {i: t for i, t in self._published_at.items() if t > due}
 
+    def _is_published(self, message: OutlookMessage) -> bool:
+        """Published this process lifetime, and not modified since."""
+        if message.id not in self._published_at:
+            return False
+        published = self._published_version.get(message.id)
+        if published is None or message.last_modified_at is None:
+            return True  # nothing to compare: keep the old once-per-stay behaviour
+        return message.last_modified_at <= published
+
     def mark_published(self, message: OutlookMessage) -> None:
-        """Record a successfully published message so rescans skip it."""
+        """Record a successfully published message so rescans skip it until it changes."""
         self._published_at[message.id] = self.now()
+        self._published_version[message.id] = message.last_modified_at
 
     def fetch_attachments(self, message: OutlookMessage) -> list[OutlookAttachment]:
         """Fetch per-attachment metadata + content, only for attachment-bearing mail.

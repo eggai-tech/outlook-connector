@@ -512,6 +512,8 @@ flattened to `EmailAddress`. Unknown Graph fields are ignored.
 | `web_link`         | `str \| None`         | Open-in-Outlook URL.                             |
 | `conversation_id`  | `str \| None`         |                                                  |
 | `parent_folder_id` | `str \| None`         |                                                  |
+| `categories`       | `list[str]`           | Outlook category names.                          |
+| `last_modified_at` | `datetime \| None`    | `lastModifiedDateTime`; changes on any modification. |
 | `mime_content`     | `str \| None`         | The whole `.eml` as latin-1; `None` unless `include_mime=True`. |
 
 ### `EmailAddress`
