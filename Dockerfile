@@ -1,5 +1,3 @@
-# syntax=docker/dockerfile:1
-
 # --- builder: resolve and install dependencies with uv -----------------------
 FROM python:3.13-slim AS builder
 
@@ -18,16 +16,14 @@ WORKDIR /app
 # No git/ssh: `outlook-helper` is in-tree at libs/, not a private git dependency.
 COPY pyproject.toml uv.lock README.md ./
 COPY libs/outlook-helper/pyproject.toml libs/outlook-helper/README.md ./libs/outlook-helper/
-RUN --mount=type=cache,target=/root/.cache/uv \
-    uv sync --frozen --no-dev --no-install-workspace
+RUN uv sync --frozen --no-dev --no-install-workspace
 
 # First-party source, then install outlook-connector and outlook-helper.
 # `--no-editable` copies them into the venv instead of linking back to /app, so
 # the runtime stage needs nothing but the venv itself.
 COPY src ./src
 COPY libs ./libs
-RUN --mount=type=cache,target=/root/.cache/uv \
-    uv sync --frozen --no-dev --no-editable
+RUN uv sync --frozen --no-dev --no-editable
 
 # --- runtime -----------------------------------------------------------------
 FROM python:3.13-slim
@@ -37,6 +33,10 @@ WORKDIR /app
 # The venv is self-contained: outlook_connector and outlook_helper are installed
 # into it, so no application source is copied into this stage.
 COPY --from=builder /app/.venv /app/.venv
+
+# HLB structural config baked in — Azure Container Apps can't bind-mount files.
+# Secrets (AZURE_*, bus URL) still come from env/Key Vault, not this file.
+COPY config.yaml /app/config.yaml
 
 ENV PATH="/app/.venv/bin:$PATH" \
     PYTHONUNBUFFERED=1 \

@@ -13,6 +13,9 @@ wheels/
 .env*
 config*.yaml
 !config.yaml.example
+# HLB deployment bakes a non-secret structural config.yaml into the image (ACA
+# can't bind-mount). Secrets still come from env/Key Vault, never this file.
+!config.yaml
 
 .DS_Store
 docs

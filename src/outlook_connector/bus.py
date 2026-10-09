@@ -6,6 +6,7 @@ A ``broker_url`` of ``None`` leaves the transport's own default in place.
 
 import datetime
 from collections.abc import Sequence
+from urllib.parse import urlsplit
 
 from eggai import InMemoryTransport, KafkaTransport, RedisTransport
 from eggai.schemas import BaseMessage as EggaiBaseMessage
@@ -60,6 +61,33 @@ def build_bus_event(
     return EmailReceivedMessage(source=_EVENT_SOURCE, type=EMAIL_RECEIVED, data=payload)
 
 
+# Azure Managed Redis hostnames. Access keys are disabled (org policy), so the URL
+# carries no password and the connector authenticates with its system-assigned managed
+# identity via a Microsoft Entra token instead.
+_AZURE_MANAGED_REDIS_SUFFIX = ".redis.azure.net"
+
+
+def _entra_credential_provider(broker_url: str):
+    """A redis-py credential provider backed by the service's system-assigned managed
+    identity, or ``None`` when the Redis host is not Azure Managed Redis (local/CI).
+
+    redis-entraid fetches an Entra token and renews it in the background, re-authing
+    live connections. It is handed to every eggai Redis client (broker + the background
+    reclaimer/monitor/delete-on-ack clients), which requires eggai >= 0.7.
+    """
+    host = urlsplit(broker_url).hostname or ""
+    if not host.endswith(_AZURE_MANAGED_REDIS_SUFFIX):
+        return None
+    from redis_entraid.cred_provider import create_from_managed_identity
+    from redis_entraid.identity_provider import ManagedIdentityType
+
+    logger.info("redis entra auth", host=host)
+    return create_from_managed_identity(
+        identity_type=ManagedIdentityType.SYSTEM_ASSIGNED,
+        resource="https://redis.azure.com/",
+    )
+
+
 def build_transport(bus_config: BusConfig) -> Transport:
     """Construct the transport described by ``bus``."""
     if bus_config.transport == "kafka":
@@ -68,7 +96,11 @@ def build_transport(bus_config: BusConfig) -> Transport:
         return KafkaTransport()
     if bus_config.transport == "redis":
         if bus_config.broker_url:
-            return RedisTransport(url=bus_config.broker_url, max_len=bus_config.max_len)
+            return RedisTransport(
+                url=bus_config.broker_url,
+                max_len=bus_config.max_len,
+                credential_provider=_entra_credential_provider(bus_config.broker_url),
+            )
         return RedisTransport(max_len=bus_config.max_len)
     if bus_config.transport == "inmemory":
         return InMemoryTransport()
