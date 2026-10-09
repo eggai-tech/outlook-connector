@@ -175,6 +175,35 @@ wheels = [
 ]
 
 [[package]]
+name = "azure-core"
+version = "1.41.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "requests" },
+    { name = "typing-extensions" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/a6/f3/b416179e408990df5db0d516283022dde0f5d0111d98c1a848e41853e81c/azure_core-1.41.0.tar.gz", hash = "sha256:f46ff5dfcd230f25cf1c19e8a34b8dc08a337b2503e268bb600a16c00db8ad5a", size = 381042, upload-time = "2026-05-07T23:30:54.302Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/5b/db/325c6d7312d2200251c52323878281045aaffcb5586612296484e4280eaa/azure_core-1.41.0-py3-none-any.whl", hash = "sha256:522b4011e8180b1a3dcd2024396a4e7fe9ac37fb8597db47163d230b5efe892d", size = 220920, upload-time = "2026-05-07T23:30:56.357Z" },
+]
+
+[[package]]
+name = "azure-identity"
+version = "1.25.3"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "azure-core" },
+    { name = "cryptography" },
+    { name = "msal" },
+    { name = "msal-extensions" },
+    { name = "typing-extensions" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/c5/0e/3a63efb48aa4a5ae2cfca61ee152fbcb668092134d3eb8bfda472dd5c617/azure_identity-1.25.3.tar.gz", hash = "sha256:ab23c0d63015f50b630ef6c6cf395e7262f439ce06e5d07a64e874c724f8d9e6", size = 286304, upload-time = "2026-03-13T01:12:20.892Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/49/9a/417b3a533e01953a7c618884df2cb05a71e7b68bdbce4fbdb62349d2a2e8/azure_identity-1.25.3-py3-none-any.whl", hash = "sha256:f4d0b956a8146f30333e071374171f3cfa7bdb8073adb8c3814b65567aa7447c", size = 192138, upload-time = "2026-03-13T01:12:22.951Z" },
+]
+
+[[package]]
 name = "certifi"
 version = "2026.6.17"
 source = { registry = "https://pypi.org/simple" }
@@ -358,15 +387,15 @@ wheels = [
 
 [[package]]
 name = "eggai"
-version = "0.3.2"
+version = "0.7.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "faststream", extra = ["kafka", "redis"] },
     { name = "pydantic" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/06/f5/a878212d76bb669996d4996f92b2d3c496938d4b6d7f5dd400e5767d6052/eggai-0.3.2.tar.gz", hash = "sha256:49caa4a509af6f331e831725c7968bdeb43596f68c326e63bd2be5072ff94f90", size = 59326, upload-time = "2026-06-15T12:22:45.944Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/10/da/34b30b0f13eb5ace64d8d1fbba4a11374d09f368aee2af40f2783f6dce44/eggai-0.7.0.tar.gz", hash = "sha256:f9ad10b6a182b16fa8fe9f09f7812c69904bba70c34c7acfef9678d8fbe81137", size = 73982, upload-time = "2026-10-06T11:41:23.908Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/2e/9a/18660bd43fbdc5dd6cd3378aa21988f1e7b546cd778b1c01d20b410aabc2/eggai-0.3.2-py3-none-any.whl", hash = "sha256:b18ed2eda36402e1a105dc6dea2468fc0a39a075767d454f199a1b0352f4f18d", size = 67177, upload-time = "2026-06-15T12:22:44.326Z" },
+    { url = "https://files.pythonhosted.org/packages/67/57/161e5f9596f4826fed540d0ebde6c84d913e11e441ffdfa4a48a3ed074b9/eggai-0.7.0-py3-none-any.whl", hash = "sha256:7354bb73376c3c3cf675b3fdaddca1efcad379881fb29de2f94a5758ab7f7244", size = 80442, upload-time = "2026-10-06T11:41:22.266Z" },
 ]
 
 [[package]]
@@ -653,6 +682,7 @@ dependencies = [
     { name = "eggai" },
     { name = "outlook-helper" },
     { name = "pydantic-settings", extra = ["yaml"] },
+    { name = "redis-entraid" },
     { name = "structlog" },
 ]
 
@@ -666,9 +696,10 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "aiohttp", specifier = ">=3.10" },
-    { name = "eggai", specifier = ">=0.3.2" },
+    { name = "eggai", specifier = ">=0.7,<0.8" },
     { name = "outlook-helper", editable = "libs/outlook-helper" },
     { name = "pydantic-settings", extras = ["yaml"], specifier = ">=2.0" },
+    { name = "redis-entraid", specifier = ">=1.2,<2" },
     { name = "structlog", specifier = ">=26.1.0" },
 ]
 
@@ -917,11 +948,11 @@ wheels = [
 
 [[package]]
 name = "pyjwt"
-version = "2.13.0"
+version = "2.15.1"
 source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/3b/81/58d0ac84e1ef3a3843791d6954d94c0b33d526c75eeb1efbce9d0a4c4077/pyjwt-2.13.0.tar.gz", hash = "sha256:41571c89ca91598c79e8ef18a2d07367d4810fbbd6f637794879baf1b7703423", size = 107515, upload-time = "2026-05-21T19:54:36.618Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/43/ea/5194e52748b0da83d71e082d75496eaec6e58f419f5e184786ded517e6a9/pyjwt-2.15.1.tar.gz", hash = "sha256:4f259e80cdfb6b3fc18a7de51fd1ef9ec79652f25019bae68975ca2468a34df8", size = 121252, upload-time = "2026-09-28T18:40:42.598Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/a3/5e/ecf12fdb62546d64385c158514e9b2b671f7832108ef2ecd2020ce0af2d1/pyjwt-2.13.0-py3-none-any.whl", hash = "sha256:66adcc2aff09b3f1bbd95fc1e1577df8ac8723c978552fd43304c8a290ac5728", size = 31274, upload-time = "2026-05-21T19:54:35.362Z" },
+    { url = "https://files.pythonhosted.org/packages/50/ca/44de4e75f8aadc457f0634be3b542815078ded46dca30efb960edeecad6e/pyjwt-2.15.1-py3-none-any.whl", hash = "sha256:42d59d631f7768a1028a64c7ff581a9bf7519804daf91fc5b6c56e30eec5e193", size = 33860, upload-time = "2026-09-28T18:40:41.429Z" },
 ]
 
 [package.optional-dependencies]
@@ -1009,6 +1040,22 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/51/93/05e7d4a65285066a74f48697f9b9cde5cfce71398033d69ed83c3d98f5c9/redis-7.4.1.tar.gz", hash = "sha256:1a1df5067062cf7cbe677994e391f8ee0840f499d370f1a71266e0dd3aa9308e", size = 4945742, upload-time = "2026-06-05T09:10:06.703Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/4a/2e/2677f3f93dae0497e7e33b6637302e7f3744efc553f34231183e32584885/redis-7.4.1-py3-none-any.whl", hash = "sha256:1fa4647af1c5e93a2c685aa248ee44cce092691146d41390518dabe9a99839b0", size = 410171, upload-time = "2026-06-05T09:10:05.128Z" },
+]
+
+[[package]]
+name = "redis-entraid"
+version = "1.2.2"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "azure-identity" },
+    { name = "msal" },
+    { name = "pyjwt" },
+    { name = "redis" },
+    { name = "requests" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/fd/6c/a829acac17877cc35931b5124c4845795dc3b949abe3bbb69fd97e89879c/redis_entraid-1.2.2.tar.gz", hash = "sha256:b421a7436808f797f7a192e24edef69bf3ec598751d8a7609b5918d83b0563b8", size = 9809, upload-time = "2026-10-08T14:07:30.291Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/e0/6f/776584d4f635c762249082963a2b56df6e0fa8ab0959c956eb10686d40e0/redis_entraid-1.2.2-py3-none-any.whl", hash = "sha256:0461621c5ee933f20c85ea5b313cd57d750078344338b60eea78cee2d282f475", size = 7975, upload-time = "2026-10-08T14:07:29.339Z" },
 ]
 
 [[package]]
