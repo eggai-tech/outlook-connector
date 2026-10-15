@@ -11,4 +11,4 @@ class StorageError(Exception):
 
 
 def save_to_storage(message):
-    logger.debug("Saving to storage...", message_id=message.id)
+    logger.debug("Saving to storage...", graph_id=message.id)

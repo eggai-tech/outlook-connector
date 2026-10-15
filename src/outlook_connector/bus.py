@@ -52,7 +52,7 @@ def build_bus_event(
     attachments: Sequence[OutlookAttachment] = (),
 ) -> EmailReceivedMessage:
     """Wrap a mapped email in the typed CloudEvents ``email.received`` envelope."""
-    logger.debug("Building bus event", message_id=message.id)
+    logger.debug("Building bus event", graph_id=message.id)
     payload = EmailReceived(
         source_mailbox=source_mailbox,
         fetched_at=fetched_at,

@@ -51,7 +51,7 @@ async def process_message(context, message, *, fetched_at):
     envelope, publish. Raising aborts the batch; the message stays unmarked
     and still in the folder, so the next rescan retries it.
     """
-    logger.debug("Processing message", message=message.id)
+    logger.debug("Processing message", graph_id=message.id)
     poller = context["poller"]
 
     attachments = await asyncio.to_thread(poller.fetch_attachments, message)
@@ -66,8 +66,16 @@ async def process_message(context, message, *, fetched_at):
         fetched_at=fetched_at,
         attachments=attachments,
     )
-    logger.debug("Publishing bus event...", new_event=bus_event)
     await context["channel"].publish(bus_event)
+    # One line per mail, ids only: the event itself carries the body, the MIME and attachment bytes, and is
+    # never logged, at any level.
+    logger.info(
+        "Published",
+        graph_id=message.id,
+        message_id=message.internet_message_id,
+        event_id=str(bus_event.id),
+        attachments=len(attachments),
+    )
 
 
 async def run_workflow(context) -> PollSummary:
@@ -103,7 +111,8 @@ async def run_workflow(context) -> PollSummary:
             summary.dropped = summary.fetched - index
             logger.warning(
                 "Publish failed; stopping batch until next cycle",
-                message=message.id,
+                graph_id=message.id,
+                message_id=message.internet_message_id,
                 error=summary.error,
             )
             break
