@@ -195,7 +195,7 @@ class Poller:
                     # Moved/deleted between the listing and the fetch — the
                     # downstream mover does exactly this concurrently. The
                     # next listing simply won't contain it.
-                    logger.debug("Listed message gone before fetch", message=stub.id)
+                    logger.debug("Listed message gone before fetch", graph_id=stub.id)
                     continue
                 raise
             self.heartbeat()
@@ -262,7 +262,7 @@ class Poller:
             return attachment
         logger.warning(
             "Attachment over size cap; publishing metadata only",
-            message=message.id,
+            graph_id=message.id,
             attachment=attachment.name,
             size=len(attachment.content),
             cap=cap,

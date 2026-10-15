@@ -15,3 +15,21 @@ def test_pyproject_script_points_at_sync_main():
     pyproject = Path(__file__).parents[1] / "pyproject.toml"
     scripts = tomllib.loads(pyproject.read_text())["project"]["scripts"]
     assert scripts["outlook-connector"] == "outlook_connector.main:main"
+
+
+def test_log_level_drops_the_levels_below_it():
+    import pytest
+    import structlog
+    from structlog.testing import capture_logs
+
+    try:
+        main_module.configure_logging("info")
+        log = structlog.get_logger()
+        with capture_logs() as logs:
+            log.debug("hidden")
+            log.info("shown")
+        assert [entry["event"] for entry in logs] == ["shown"]
+        with pytest.raises(ValueError, match="log_level"):
+            main_module.configure_logging("loud")
+    finally:
+        structlog.reset_defaults()
