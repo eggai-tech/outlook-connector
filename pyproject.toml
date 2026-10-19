@@ -11,7 +11,9 @@ dependencies = [
     "aiohttp>=3.10",
     # >=0.7: forwards credential_provider to the transport's background Redis clients,
     # needed for Entra ID auth against Azure Managed Redis (access keys disabled).
-    "eggai>=0.7,<0.8",
+    # >=0.8: moves open connections to a renewed token; before it, every connection was
+    # closed by the server when its token expired and the next command on it was lost.
+    "eggai>=0.8,<0.9",
     # Entra ID credential provider for Azure Managed Redis (managed-identity token).
     "redis-entraid>=1.2,<2",
     "outlook-helper>=0.5.0",
