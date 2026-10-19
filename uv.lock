@@ -387,15 +387,16 @@ wheels = [
 
 [[package]]
 name = "eggai"
-version = "0.7.0"
+version = "0.8.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "faststream", extra = ["kafka", "redis"] },
     { name = "pydantic" },
+    { name = "redis" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/10/da/34b30b0f13eb5ace64d8d1fbba4a11374d09f368aee2af40f2783f6dce44/eggai-0.7.0.tar.gz", hash = "sha256:f9ad10b6a182b16fa8fe9f09f7812c69904bba70c34c7acfef9678d8fbe81137", size = 73982, upload-time = "2026-10-06T11:41:23.908Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/23/6e/1782cff4a0cc51552c89324abc5c8133f3c40aa234a15c9b4bb83a81f101/eggai-0.8.0.tar.gz", hash = "sha256:1c3cfd88a2c59dc4ecf63b8708f7474ba39dcd59fa1365005b08c34c1ab79fb7", size = 77369, upload-time = "2026-10-19T10:20:57.746Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/67/57/161e5f9596f4826fed540d0ebde6c84d913e11e441ffdfa4a48a3ed074b9/eggai-0.7.0-py3-none-any.whl", hash = "sha256:7354bb73376c3c3cf675b3fdaddca1efcad379881fb29de2f94a5758ab7f7244", size = 80442, upload-time = "2026-10-06T11:41:22.266Z" },
+    { url = "https://files.pythonhosted.org/packages/6a/42/86fb75b55f57da0ae92ca9d82ffd808247db9ddd275546ee90a1579a60e4/eggai-0.8.0-py3-none-any.whl", hash = "sha256:d567a0c72995bd2a33aa835a77cebbe2110b4ae22cfa72780f5a0febf64b7f67", size = 84258, upload-time = "2026-10-19T10:20:56.418Z" },
 ]
 
 [[package]]
@@ -696,7 +697,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "aiohttp", specifier = ">=3.10" },
-    { name = "eggai", specifier = ">=0.7,<0.8" },
+    { name = "eggai", specifier = ">=0.8,<0.9" },
     { name = "outlook-helper", editable = "libs/outlook-helper" },
     { name = "pydantic-settings", extras = ["yaml"], specifier = ">=2.0" },
     { name = "redis-entraid", specifier = ">=1.2,<2" },

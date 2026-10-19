@@ -71,9 +71,10 @@ def _entra_credential_provider(broker_url: str):
     """A redis-py credential provider backed by the service's system-assigned managed
     identity, or ``None`` when the Redis host is not Azure Managed Redis (local/CI).
 
-    redis-entraid fetches an Entra token and renews it in the background, re-authing
-    live connections. It is handed to every eggai Redis client (broker + the background
-    reclaimer/monitor/delete-on-ack clients), which requires eggai >= 0.7.
+    redis-entraid fetches an Entra token and renews it in the background. It is handed to
+    every eggai Redis client (broker + the background reclaimer/monitor/delete-on-ack
+    clients), which requires eggai >= 0.7; eggai >= 0.8 also moves their pooled
+    connections to each renewed token.
     """
     host = urlsplit(broker_url).hostname or ""
     if not host.endswith(_AZURE_MANAGED_REDIS_SUFFIX):
