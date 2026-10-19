@@ -85,3 +85,28 @@ def test_graph_error_publishes_nothing_and_marks_nothing():
     assert summary.error_source == "graph"
     assert channel.published == []
     assert context["poller"]._published_at.keys() == set()
+
+
+def test_one_line_per_published_mail_with_its_ids_and_never_its_content():
+    from structlog.testing import capture_logs
+
+    client = FakeClient(
+        messages=[make_message("m1", received_at=_at(10), has_attachments=True)],
+        attachments=[make_attachment(content=b"%PDF-1.4 secret bytes")],
+    )
+    channel = FakeChannel()
+
+    with capture_logs() as logs:  # every level, DEBUG included
+        asyncio.run(run_workflow(_context(client, channel)))
+
+    (published,) = [entry for entry in logs if entry["event"] == "Published"]
+    expected = {
+        "log_level": "info",
+        "graph_id": "m1",
+        "message_id": "<m1@example.com>",
+        "event_id": str(channel.published[0].id),
+        "attachments": 1,
+    }
+    assert expected.items() <= published.items()
+    text = repr(logs)
+    assert "subject m1" not in text and "<p>hi</p>" not in text and "secret bytes" not in text

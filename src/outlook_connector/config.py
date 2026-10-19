@@ -57,6 +57,8 @@ class Settings(BaseSettings):
         env_file=".env",
         env_nested_delimiter="__",
         extra="ignore",
+        # A validation error names the field and never echoes the input, which holds the credentials.
+        hide_input_in_errors=True,
     )
 
     mailbox: str = Field(min_length=1)
