@@ -6,8 +6,12 @@ FROM python:3.13-slim AS builder
 # uv, pinned via the official distroless image
 COPY --from=ghcr.io/astral-sh/uv:0.11.26 /uv /uvx /bin/
 
+# No uv cache: the dependency layer below is cached by Docker already, and a
+# cache mount (`RUN --mount`) would need BuildKit; plain `docker build` with the
+# legacy builder, as some hosted registry build services run it, rejects it.
 ENV UV_COMPILE_BYTECODE=1 \
     UV_LINK_MODE=copy \
+    UV_NO_CACHE=1 \
     UV_PYTHON_DOWNLOADS=0
 
 WORKDIR /app
@@ -18,16 +22,14 @@ WORKDIR /app
 # No git/ssh: `outlook-helper` is in-tree at libs/, not a private git dependency.
 COPY pyproject.toml uv.lock README.md ./
 COPY libs/outlook-helper/pyproject.toml libs/outlook-helper/README.md ./libs/outlook-helper/
-RUN --mount=type=cache,target=/root/.cache/uv \
-    uv sync --frozen --no-dev --no-install-workspace
+RUN uv sync --frozen --no-dev --no-install-workspace
 
 # First-party source, then install outlook-connector and outlook-helper.
 # `--no-editable` copies them into the venv instead of linking back to /app, so
 # the runtime stage needs nothing but the venv itself.
 COPY src ./src
 COPY libs ./libs
-RUN --mount=type=cache,target=/root/.cache/uv \
-    uv sync --frozen --no-dev --no-editable
+RUN uv sync --frozen --no-dev --no-editable
 
 # --- runtime -----------------------------------------------------------------
 FROM python:3.13-slim
